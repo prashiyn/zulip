@@ -673,6 +673,25 @@ v1_api_mobile_patterns = [
     url(r'^fetch_google_client_id$',
         zerver.views.auth.api_fetch_google_client_id,
         name='zerver.views.auth.api_fetch_google_client_id'),
+############################ CHANGES MADE TO CONVERT THIS TO FULL API / Stateless
+    # Used by both mobile and Web to create a realm / Orgamization
+    # require email and LANGUAGE_CODE
+    url(r'^realm/new/$', zerver.views.registration.create_realm_api,
+        name='zerver.views.create_realm_api'),
+
+    # Step1:  Call this Confirm the realm creation key 
+    url(r'^accounts/do_confirm/(?P<confirmation_key>[\w]+)$',
+        zerver.views.registration.check_prereg_key_and_respond,
+        name='check_prereg_key_and_respond'),
+    
+    # Step 2: Call this for posting Registration endpoints, require a confirmation ID.
+    url(r'^accounts/register/$', zerver.views.registration.accounts_register_api,
+    name='zerver.views.registration.accounts_register_api'),
+    # Step 3: Call below for login. with token recieved in step 2 
+    # Like in desltop_otp or mobile_otp, client needs to build an otp for decrypting response.   
+    url(r'^accounts/login/subdomain/([^/]+)$', zerver.views.auth.log_into_subdomain,
+      name='zerver.views.auth.log_into_subdomain'),
+
 ]
 urls += [
     url(r'^api/v1/', include(v1_api_mobile_patterns)),
