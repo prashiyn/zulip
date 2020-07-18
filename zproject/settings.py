@@ -987,7 +987,7 @@ if REGISTER_LINK_DISABLED is None:
 # SOCIAL AUTHENTICATION SETTINGS
 ########################################################################
 
-SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ['subdomain', 'is_signup', 'mobile_flow_otp', 'desktop_flow_otp',
+SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = ['subdomain', 'is_signup', 'mobile_flow_otp', 'desktop_flow_otp', 'api_flow_otp',
                                         'multiuse_object_key']
 SOCIAL_AUTH_LOGIN_ERROR_URL = '/login/'
 
