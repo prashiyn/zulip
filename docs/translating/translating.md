@@ -48,7 +48,8 @@ Some useful tips for your translating journey:
   you go along and will help any future translators a lot.
 
 - Don't translate variables or code (usually preceded by a `%`, or inside
-  HTML tags `<...>`); just keep them verbatim.
+  HTML tags `<...>` or enclosed like `__variable__` or
+  `{{ variable }}`); just keep them verbatim.
 
 - When in doubt, ask for context in
   [#translation](https://chat.zulip.org/#narrow/stream/58-translation) in
@@ -87,7 +88,7 @@ There are a few ways to see your translations in the Zulip UI:
   `http://localhost:9991/de/login/`.  This works for any part of the
   Zulip UI, including portico (logged-out) pages.
 * For Zulip's logged-in UI (i.e. the actual webapp), you can [pick the
-  language](https://zulipchat.com/help/change-your-language) in the
+  language](https://zulip.com/help/change-your-language) in the
   Zulip UI.
 * If your system has languages configured in your OS/browser, Zulip's
   portico (logged-out) pages will automatically use your configured

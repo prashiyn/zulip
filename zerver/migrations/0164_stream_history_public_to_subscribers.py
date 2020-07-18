@@ -2,7 +2,7 @@
 
 from django.conf import settings
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -35,5 +35,6 @@ class Migration(migrations.Migration):
             field=models.BooleanField(default=False),
         ),
         migrations.RunPython(set_initial_value_for_history_public_to_subscribers,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
     ]

@@ -4,7 +4,7 @@ const events = {
 };
 
 window.onload = function () {
-    document.body.addEventListener("mouseup", function (e) {
+    document.body.addEventListener("mouseup", (e) => {
         events.documentMouseup = events.documentMouseup.filter(function (event) {
             // go through automatic cleanup when running events.
             if (!document.body.contains(event.canvas)) {
@@ -17,7 +17,7 @@ window.onload = function () {
     });
 
     window.addEventListener("resize", function (e) {
-        events.windowResize = events.windowResize.filter(function (event) {
+        events.windowResize = events.windowResize.filter((event) => {
             if (!document.body.contains(event.canvas)) {
                 return false;
             }
@@ -25,16 +25,16 @@ window.onload = function () {
             event.callback.call(this, e);
 
             return true;
-        }.bind(this));
+        });
     });
 };
 
 const funcs = {
     setZoom: function (meta, zoom) {
         // condition to handle zooming event by zoom hotkeys
-        if (zoom === '+') {
+        if (zoom === "+") {
             zoom = meta.zoom * 1.2;
-        } else if (zoom === '-') {
+        } else if (zoom === "-") {
             zoom = meta.zoom / 1.2;
         }
         // make sure the zoom is above 1 and below the maxZoom.
@@ -76,7 +76,7 @@ const funcs = {
         // actually an element that can scroll. The wheel event will
         // detect the *gesture* of scrolling over an element, without actually
         // worrying about scrollable content.
-        canvas.addEventListener("wheel", function (e) {
+        canvas.addEventListener("wheel", (e) => {
             e.preventDefault();
 
             // this is to reverse scrolling directions for the image.
@@ -99,9 +99,8 @@ const funcs = {
             // delta = 8
             // normalizedDelta = delta * (1 / 20) * 1 = 0.4
             // zoom = zoom * (0.4 / 100) + 1
-            const zoom = meta.zoom * (
-                meta.speed * meta.internalSpeedMultiplier * delta / 100 + 1
-            );
+            const zoom =
+                meta.zoom * ((meta.speed * meta.internalSpeedMultiplier * delta) / 100 + 1);
 
             funcs.setZoom(meta, zoom);
             funcs.displayImage(canvas, context, meta);
@@ -111,12 +110,12 @@ const funcs = {
 
         // the only valid mousedown events should originate inside of the
         // canvas.
-        canvas.addEventListener("mousedown", function () {
+        canvas.addEventListener("mousedown", () => {
             mousedown = true;
         });
 
         // on mousemove, actually run the pan events.
-        canvas.addEventListener("mousemove", function (e) {
+        canvas.addEventListener("mousemove", (e) => {
             // to pan, there must be mousedown and mousemove, check if valid.
             if (mousedown === true) {
                 polyfillMouseMovement(e);
@@ -130,8 +129,8 @@ const funcs = {
                 // add the percentMovement to the meta coordinates but divide
                 // out by the zoom ratio because when zoomed in 10x for example
                 // moving the photo by 1% will appear like 10% on the <canvas>.
-                meta.coords.x += percentMovement.x * 2 / meta.zoom;
-                meta.coords.y += percentMovement.y * 2 / meta.zoom;
+                meta.coords.x += (percentMovement.x * 2) / meta.zoom;
+                meta.coords.y += (percentMovement.y * 2) / meta.zoom;
 
                 // redraw the image.
                 funcs.displayImage(canvas, context, meta);
@@ -145,33 +144,31 @@ const funcs = {
         // that the LightboxCanvas instance created in lightbox.js can be
         // accessed from hotkey.js. Major code refactoring is required in lightbox.js
         // to implement these keyboard shortcuts in hotkey.js
-        document.addEventListener('keydown', function (e) {
+        document.addEventListener("keydown", (e) => {
             if (!overlays.lightbox_open()) {
                 return;
             }
-            if (e.key === "Z" || e.key === '+') {
-                funcs.setZoom(meta, '+');
+            if (e.key === "Z" || e.key === "+") {
+                funcs.setZoom(meta, "+");
                 funcs.displayImage(canvas, context, meta);
-            } else if (e.key === "z" || e.key === '-') {
-                funcs.setZoom(meta, '-');
+            } else if (e.key === "z" || e.key === "-") {
+                funcs.setZoom(meta, "-");
                 funcs.displayImage(canvas, context, meta);
-            } else if (e.key === 'v') {
-                overlays.close_overlay('lightbox');
+            } else if (e.key === "v") {
+                overlays.close_overlay("lightbox");
             }
             e.preventDefault();
             e.stopPropagation();
         });
 
-
         // make sure that when the mousedown is lifted on <canvas>to prevent
         // panning events.
-        canvas.addEventListener("mouseup", function () {
+        canvas.addEventListener("mouseup", () => {
             mousedown = false;
             // reset this to be empty so that the values will `NaN` on first
             // mousemove and default to a change of (0, 0).
             lastPosition = {};
         });
-
 
         // do so on the document.body as well, though depending on the infra,
         // these are less reliable as preventDefault may prevent these events
@@ -215,7 +212,7 @@ const funcs = {
         const w = canvas.width * meta.zoom;
         const h = canvas.height * meta.zoom;
 
-        canvas.width = canvas.width;
+        context.clearRect(0, 0, canvas.width, canvas.height);
         context.imageSmoothingEnabled = false;
 
         context.drawImage(meta.image, x, y, w, h);
@@ -246,8 +243,7 @@ const funcs = {
             canvas.width = parent.width * 2;
             canvas.style.width = parent.width + "px";
 
-
-            canvas.height = parent.width / meta.ratio * 2;
+            canvas.height = (parent.width / meta.ratio) * 2;
             canvas.style.height = parent.width / meta.ratio + "px";
         } else {
             canvas.height = parent.height * 2;

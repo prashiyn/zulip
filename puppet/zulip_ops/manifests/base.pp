@@ -1,6 +1,7 @@
 class zulip_ops::base {
   include zulip::base
   include zulip::apt_repository
+  include zulip_ops::munin_node
 
   $org_base_packages = [# Management for our systems
     'openssh-server',
@@ -9,20 +10,13 @@ class zulip_ops::base {
     'aptitude',
     # SSL Certificates
     'certbot',
-    # Monitoring
-    'munin-node',
-    'munin-plugins-extra' ,
     # Security
     'iptables-persistent',
     # For managing our current Debian packages
     'debian-goodies',
     # Needed for zulip-ec2-configure-network-interfaces
-    'python3-six',
-    'python-six',
-    'python3-boto',
-    'python-boto', # needed for postgres_common too
+    'python3-boto3',
     'python3-netifaces',
-    'python-netifaces',
     # Popular editors
     'vim',
     'emacs-nox',
@@ -31,17 +25,14 @@ class zulip_ops::base {
     # Useful tools in a production environment
     'screen',
     'strace',
-    'host',
+    'bind9-host',
     'git',
     'nagios-plugins-contrib',
   ]
-  package { $org_base_packages: ensure => 'installed' }
+  zulip::safepackage { $org_base_packages: ensure => 'installed' }
 
   # Add system users here
   $users = []
-
-  # Add hosts to monitor here
-  $hosts = []
 
   file { '/etc/apt/apt.conf.d/02periodic':
     ensure => file,

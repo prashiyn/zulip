@@ -1,8 +1,6 @@
 # This file contains various helper functions used by `build_emoji` tool.
 # See docs/subsystems/emoji.md for details on how this system works.
-
 from collections import defaultdict
-
 from typing import Any, Dict, List
 
 # Emojisets that we currently support.
@@ -42,8 +40,14 @@ EMOTICON_CONVERSIONS = {
     '(:': ':slight_smile:',
     ':(': ':frown:',
     '<3': ':heart:',
-    ':|': ':expressionless:',
+    ':|': ':neutral:',
     ':/': ':confused:',
+    ';)': ':wink:',
+    ':D': ':grinning:',
+    ':o': ':open_mouth:',
+    ':O': ':open_mouth:',
+    ':p': ':stuck_out_tongue:',
+    ':P': ':stuck_out_tongue:',
 }
 
 def emoji_names_for_picker(emoji_name_maps: Dict[str, Dict[str, Any]]) -> List[str]:

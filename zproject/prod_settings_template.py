@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 ################################################################
 # Zulip Server settings.
@@ -85,7 +85,7 @@ EXTERNAL_HOST = 'zulip.example.com'
 # The noreply address to be used as the sender for certain generated
 # emails.  Messages sent to this address could contain sensitive user
 # data and should not be delivered anywhere.  The default is
-# e.g. noreply-{random_token}@zulip.example.com (if EXTERNAL_HOST is
+# e.g. noreply-{token}@zulip.example.com (if EXTERNAL_HOST is
 # zulip.example.com).  There are potential security issues if you set
 # ADD_TOKENS_TO_NOREPLY_ADDRESS=False to remove the token; see
 # https://zulip.readthedocs.io/en/latest/production/email.html for details.
@@ -115,16 +115,17 @@ EXTERNAL_HOST = 'zulip.example.com'
 # The install process requires EmailAuthBackend (the default) to be
 # enabled.  If you want to disable it, do so after creating the
 # initial realm and user.
-AUTHENTICATION_BACKENDS = (
+AUTHENTICATION_BACKENDS: Tuple[str, ...] = (
     'zproject.backends.EmailAuthBackend',  # Email and password; just requires SMTP setup
     # 'zproject.backends.GoogleAuthBackend',  # Google auth, setup below
     # 'zproject.backends.GitHubAuthBackend',  # GitHub auth, setup below
     # 'zproject.backends.GitLabAuthBackend',  # GitLab auth, setup below
     # 'zproject.backends.AzureADAuthBackend',  # Microsoft Azure Active Directory auth, setup below
+    # 'zproject.backends.AppleAuthBackend',  # Apple auth, setup below
     # 'zproject.backends.SAMLAuthBackend', # SAML, setup below
     # 'zproject.backends.ZulipLDAPAuthBackend',  # LDAP, setup below
     # 'zproject.backends.ZulipRemoteUserBackend',  # Local SSO, setup docs on readthedocs
-)  # type: Tuple[str, ...]
+)
 
 ########
 # Google OAuth.
@@ -222,8 +223,8 @@ SOCIAL_AUTH_SAML_ORG_INFO = {
     "en-US": {
         "displayname": "Example, Inc. Zulip",
         "name": "zulip",
-        "url": "%s%s" % ('https://', EXTERNAL_HOST),
-    }
+        "url": "{}{}".format('https://', EXTERNAL_HOST),
+    },
 }
 SOCIAL_AUTH_SAML_ENABLED_IDPS = {
     # The fields are explained in detail here:
@@ -243,6 +244,7 @@ SOCIAL_AUTH_SAML_ENABLED_IDPS = {
         "attr_last_name": "last_name",
         "attr_username": "email",
         "attr_email": "email",
+
         # The "x509cert" attribute is automatically read from
         # /etc/zulip/saml/idps/{idp_name}.crt; don't specify it here.
 
@@ -258,15 +260,19 @@ SOCIAL_AUTH_SAML_ENABLED_IDPS = {
         # If you want this IdP to only be enabled for authentication
         # to certain subdomains, uncomment and edit the setting below.
         # "limit_to_subdomains": ["subdomain1", "subdomain2"],
-    }
+
+        # You can also limit subdomains by setting "attr_org_membership"
+        # to be a SAML attribute containing the allowed subdomains for a user.
+        # "attr_org_membership": "member",
+    },
 }
 
-SOCIAL_AUTH_SAML_SECURITY_CONFIG = {
+SOCIAL_AUTH_SAML_SECURITY_CONFIG: Dict[str, Any] = {
     # If you've set up the optional private and public server keys,
     # set this to True to enable signing of SAMLRequests using the
     # private key.
     "authnRequestsSigned": False,
-}  # type: Dict[str, Any]
+}
 
 # These SAML settings you likely won't need to modify.
 SOCIAL_AUTH_SAML_SP_ENTITY_ID = 'https://' + EXTERNAL_HOST
@@ -278,6 +284,18 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = {
     "givenName": "Support team",
     "emailAddress": ZULIP_ADMINISTRATOR,
 }
+
+########
+# Apple authentication ("Sign in with Apple").
+#
+# Configure the below settings by following the instructions here:
+#
+#     https://zulip.readthedocs.io/en/latest/production/authentication-methods.html#sign-in-with-apple
+#
+#SOCIAL_AUTH_APPLE_TEAM = "<your Team ID>"
+#SOCIAL_AUTH_APPLE_SERVICES_ID = "<your Services ID>"
+#SOCIAL_AUTH_APPLE_BUNDLE_ID = "<your Bundle ID>"
+#SOCIAL_AUTH_APPLE_KEY = "<your Key ID>"
 
 ########
 # Azure Active Directory OAuth.
@@ -299,10 +317,11 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = {
 # SSO via REMOTE_USER.
 #
 # If you are using the ZulipRemoteUserBackend authentication backend,
-# set this to your domain (e.g. if REMOTE_USER is "username" and the
-# corresponding email address is "username@example.com", set
-# SSO_APPEND_DOMAIN = "example.com")
-SSO_APPEND_DOMAIN = None  # type: Optional[str]
+# and REMOTE_USER does not already include a domain, set this to your
+# domain (e.g. if REMOTE_USER is "username" and the corresponding
+# email address is "username@example.com", set SSO_APPEND_DOMAIN =
+# "example.com"), otherwise leave this as None.
+#SSO_APPEND_DOMAIN = None
 
 ################
 # Miscellaneous settings.
@@ -468,6 +487,16 @@ EMAIL_GATEWAY_IMAP_PORT = 993
 EMAIL_GATEWAY_IMAP_FOLDER = "INBOX"
 
 
+########
+# Zoom integration.
+#
+# Zulip supports using Zoom as a video calling provider. To learn more about
+# configuring Zoom, see:
+# https://zulip.readthedocs.io/en/latest/production/zoom-configuration.html
+#
+#VIDEO_ZOOM_CLIENT_ID = <your Zoom Client ID>
+
+
 ################
 # LDAP integration.
 #
@@ -520,13 +549,13 @@ AUTH_LDAP_USER_SEARCH = LDAPSearch("ou=users,dc=example,dc=com",
 # their email address is "sam@example.com", set LDAP_APPEND_DOMAIN to
 # "example.com".  Otherwise, leave LDAP_APPEND_DOMAIN=None and set
 # AUTH_LDAP_REVERSE_EMAIL_SEARCH and AUTH_LDAP_USERNAME_ATTR below.
-LDAP_APPEND_DOMAIN = None  # type: Optional[str]
+#LDAP_APPEND_DOMAIN = None
 
 # LDAP attribute to find a user's email address.
 #
 # Leave as None if users log in with their email addresses,
 # or if using LDAP_APPEND_DOMAIN.
-LDAP_EMAIL_ATTR = None  # type: Optional[str]
+#LDAP_EMAIL_ATTR = None
 
 # AUTH_LDAP_REVERSE_EMAIL_SEARCH works like AUTH_LDAP_USER_SEARCH and
 # should query an LDAP user given their email address.  It and
@@ -592,8 +621,8 @@ CAMO_URI = '/external_content/'
 # Format HOST:PORT
 # MEMCACHED_LOCATION = 127.0.0.1:11211
 # To authenticate to memcached, set memcached_password in zulip-secrets.conf,
-# and optionally change the default username 'zulip' here.
-# MEMCACHED_USERNAME = 'zulip'
+# and optionally change the default username 'zulip@localhost' here.
+# MEMCACHED_USERNAME = 'zulip@localhost'
 
 # Redis configuration
 #
@@ -626,3 +655,7 @@ CAMO_URI = '/external_content/'
 # your own Jitsi Meet server, or if you'd like to disable the
 # integration, set JITSI_SERVER_URL = None.
 #JITSI_SERVER_URL = 'jitsi.example.com'
+
+# Controls the Big Blue Button video call integration.  You must also
+# set big_blue_button_secret in zulip-secrets.conf.
+# BIG_BLUE_BUTTON_URL = "https://bbb.example.com/bigbluebutton/"

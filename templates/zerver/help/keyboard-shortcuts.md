@@ -99,11 +99,11 @@ below, and add more to your repertoire as needed.
 
 * **Send message**: `Enter`, `Tab` then `Enter`, and/or `Ctrl` + `Enter`,
   depending on your settings. See
-  [enable enter to send](https://zulipchat.com/help/enable-enter-to-send).
+  [enable enter to send](https://zulip.com/help/enable-enter-to-send).
 
 * **Insert new line**: `Enter`, or `Shift` + `Enter`, depending on your
   settings. See
-  [enable enter to send](https://zulipchat.com/help/enable-enter-to-send).
+  [enable enter to send](https://zulip.com/help/enable-enter-to-send).
 
 * **Insert italic text**: `*italic*` or `Ctrl + I`
 * **Insert bold text**: `**bold**` or `Ctrl + B`
@@ -136,6 +136,14 @@ title="thumbs up"/>**: `+`
 * **Toggle topic mute**: `M` — Muted topics don't show up in any views
   (including All messages), and don't contribute to unread counts. Read more about
   [muting topics](/help/mute-a-topic).
+
+## Recent Topics
+
+* **View Recent Topics**: `t`
+* **Hide Recent Topics**: `Esc`
+
+Keyboard navigation (e.g. arrow keys) works as expected.
+Use `Enter` to engage with elements.
 
 ## Drafts
 

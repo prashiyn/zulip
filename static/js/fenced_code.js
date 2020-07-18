@@ -5,14 +5,21 @@
 // auto-completing code blocks missing a trailing close.
 
 // See backend fenced_code.py:71 for associated regexp
-const fencestr = "^(~{3,}|`{3,})"            + // Opening Fence
-               "[ ]*"                      + // Spaces
-               "("                         +
-                   "\\{?\\.?"              +
-                   "([a-zA-Z0-9_+-./#]*)"  + // Language
-                   "\\}?"                  +
-               "[ ]*"                      + // Spaces
-               ")$";
+const fencestr =
+    "^(~{3,}|`{3,})" + // Opening Fence
+    "[ ]*" + // Spaces
+    "(" +
+    "\\{?\\.?" +
+    "([a-zA-Z0-9_+-./#]*)" + // Language
+    "\\}?" +
+    ")" +
+    "[ ]*" + // Spaces
+    "(" +
+    "\\{?\\.?" +
+    "([^~`]*)" + // Header (see fenced_code.py)
+    "\\}?" +
+    ")" +
+    "$";
 const fence_re = new RegExp(fencestr);
 
 // Default stashing function does nothing
@@ -23,23 +30,30 @@ let stash_func = function (text) {
 exports.wrap_code = function (code) {
     // Trim trailing \n until there's just one left
     // This mirrors how pygments handles code input
-    return '<div class="codehilite"><pre><span></span><code>' +
-        _.escape(code.replace(/^\n+|\n+$/g, '')) +
-        '\n</code></pre></div>\n';
+    return (
+        '<div class="codehilite"><pre><span></span><code>' +
+        _.escape(code.replace(/^\n+|\n+$/g, "")) +
+        "\n</code></pre></div>\n"
+    );
 };
 
 function wrap_quote(text) {
-    const paragraphs = text.split('\n\n');
+    const paragraphs = text.split("\n\n");
     const quoted_paragraphs = [];
 
     // Prefix each quoted paragraph with > at the
     // beginning of each line
     for (const paragraph of paragraphs) {
-        const lines = paragraph.split('\n');
-        quoted_paragraphs.push(lines.filter(line => line !== '').map(line => '> ' + line).join('\n'));
+        const lines = paragraph.split("\n");
+        quoted_paragraphs.push(
+            lines
+                .filter((line) => line !== "")
+                .map((line) => "> " + line)
+                .join("\n"),
+        );
     }
 
-    return quoted_paragraphs.join('\n\n');
+    return quoted_paragraphs.join("\n\n");
 }
 
 function wrap_tex(tex) {
@@ -48,8 +62,22 @@ function wrap_tex(tex) {
             displayMode: true,
         });
     } catch (ex) {
-        return '<span class="tex-error">' + _.escape(tex) + '</span>';
+        return '<span class="tex-error">' + _.escape(tex) + "</span>";
     }
+}
+
+function wrap_spoiler(header, text, stash_func) {
+    const output = [];
+    const header_div_open_html = '<div class="spoiler-block"><div class="spoiler-header">';
+    const end_header_start_content_html = '</div><div class="spoiler-content" aria-hidden="true">';
+    const footer_html = "</div></div>";
+
+    output.push(stash_func(header_div_open_html));
+    output.push(header);
+    output.push(stash_func(end_header_start_content_html));
+    output.push(text);
+    output.push(stash_func(footer_html));
+    return output.join("\n\n");
 }
 
 exports.set_stash_func = function (stash_handler) {
@@ -57,17 +85,17 @@ exports.set_stash_func = function (stash_handler) {
 };
 
 exports.process_fenced_code = function (content) {
-    const input = content.split('\n');
+    const input = content.split("\n");
     const output = [];
     const handler_stack = [];
     let consume_line;
 
-    function handler_for_fence(output_lines, fence, lang) {
+    function handler_for_fence(output_lines, fence, lang, header) {
         // lang is ignored except for 'quote', as we
         // don't do syntax highlighting yet
         return (function () {
             const lines = [];
-            if (lang === 'quote') {
+            if (lang === "quote") {
                 return {
                     handle_line: function (line) {
                         if (line === fence) {
@@ -78,16 +106,16 @@ exports.process_fenced_code = function (content) {
                     },
 
                     done: function () {
-                        const text = wrap_quote(lines.join('\n'));
-                        output_lines.push('');
+                        const text = wrap_quote(lines.join("\n"));
+                        output_lines.push("");
                         output_lines.push(text);
-                        output_lines.push('');
+                        output_lines.push("");
                         handler_stack.pop();
                     },
                 };
             }
 
-            if (lang === 'math' || lang === 'tex' || lang === 'latex') {
+            if (lang === "math") {
                 return {
                     handle_line: function (line) {
                         if (line === fence) {
@@ -98,11 +126,31 @@ exports.process_fenced_code = function (content) {
                     },
 
                     done: function () {
-                        const text = wrap_tex(lines.join('\n'));
+                        const text = wrap_tex(lines.join("\n"));
                         const placeholder = stash_func(text, true);
-                        output_lines.push('');
+                        output_lines.push("");
                         output_lines.push(placeholder);
-                        output_lines.push('');
+                        output_lines.push("");
+                        handler_stack.pop();
+                    },
+                };
+            }
+
+            if (lang === "spoiler") {
+                return {
+                    handle_line: function (line) {
+                        if (line === fence) {
+                            this.done();
+                        } else {
+                            lines.push(line);
+                        }
+                    },
+
+                    done: function () {
+                        const text = wrap_spoiler(header, lines.join("\n"), stash_func);
+                        output_lines.push("");
+                        output_lines.push(text);
+                        output_lines.push("");
                         handler_stack.pop();
                     },
                 };
@@ -118,16 +166,16 @@ exports.process_fenced_code = function (content) {
                 },
 
                 done: function () {
-                    const text = exports.wrap_code(lines.join('\n'));
+                    const text = exports.wrap_code(lines.join("\n"));
                     // insert safe HTML that is passed through the parsing
                     const placeholder = stash_func(text, true);
-                    output_lines.push('');
+                    output_lines.push("");
                     output_lines.push(placeholder);
-                    output_lines.push('');
+                    output_lines.push("");
                     handler_stack.pop();
                 },
             };
-        }());
+        })();
     }
 
     function default_hander() {
@@ -146,7 +194,8 @@ exports.process_fenced_code = function (content) {
         if (match) {
             const fence = match[1];
             const lang = match[3];
-            const handler = handler_for_fence(output_lines, fence, lang);
+            const header = match[5];
+            const handler = handler_for_fence(output_lines, fence, lang, header);
             handler_stack.push(handler);
         } else {
             output_lines.push(line);
@@ -168,11 +217,11 @@ exports.process_fenced_code = function (content) {
         handler.done();
     }
 
-    if (output.length > 2 && output[output.length - 2] !== '') {
-        output.push('');
+    if (output.length > 2 && output[output.length - 2] !== "") {
+        output.push("");
     }
 
-    return output.join('\n');
+    return output.join("\n");
 };
 
 const fence_length_re = /^ {0,3}(`{3,})/gm;
@@ -184,7 +233,7 @@ exports.get_unused_fence = (content) => {
     while ((match = fence_length_re.exec(content)) !== null) {
         length = Math.max(length, match[1].length + 1);
     }
-    return '`'.repeat(length);
+    return "`".repeat(length);
 };
 
 window.fenced_code = exports;

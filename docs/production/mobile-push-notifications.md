@@ -36,7 +36,7 @@ follows:
    This command will print the registration data it would send to the
    mobile push notifications service, ask you to accept the terms of
    service, and if you accept, register your server. If you have trouble,
-   email support@zulipchat.com with the output of this command.
+   email support@zulip.com with the output of this command.
 
 1. If you or your users have already set up the Zulip mobile app,
    you'll each need to log out and log back in again in order to start
@@ -61,7 +61,7 @@ Zulip only sends push notifications for private messages sent by other
 users and messages mentioning you).  A push notification should appear
 in the Android notification area.
 
-[mobile-notifications-always]: https://zulipchat.com/help/test-mobile-notifications
+[mobile-notifications-always]: https://zulip.com/help/test-mobile-notifications
 
 ## Updating your server's registration
 
@@ -96,7 +96,7 @@ forwarding service).
 ## Security and privacy
 
 Use of the push notification bouncer is subject to the
-[Zulipchat Terms of Service](https://zulipchat.com/terms/). By using
+[Zulipchat Terms of Service](https://zulip.com/terms/). By using
 push notifications, you agree to those terms.
 
 We've designed this push notification bouncer service with security
@@ -146,7 +146,7 @@ and privacy in mind:
   by a small team of security expert engineers.
 
 If you have any questions about the security model, contact
-support@zulipchat.com.
+support@zulip.com.
 
 ## Submitting statistics
 
@@ -162,19 +162,6 @@ Privacy Policy that covers the Mobile Push Notifications Service
 itself. If your organization does not want to submit these
 statistics, you can disable this feature at any time by setting
 `SUBMIT_USAGE_STATISTICS=False` in `/etc/zulip/settings.py`.
-
-## Legacy signup
-
-Here are legacy instructions for signing a server up for push
-notifications, for Zulip 1.8 and older.
-
-1. First, contact support@zulipchat.com with the `zulip_org_id` and
-   `zulip_org_key` values from your `/etc/zulip/zulip-secrets.conf` file, as
-   well as a `hostname` and `contact email` address you'd like us to use in case
-   of any issues (we hope to have a nice web flow available for this soon).
-
-2. We'll enable push notifications for your server on our end. Look for a
-   reply from Zulipchat support within 24 hours.
 
 ## Sending push notifications directly from your server
 

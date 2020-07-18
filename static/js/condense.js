@@ -10,7 +10,6 @@ This library implements two related, similar concepts:
 
 */
 
-
 const _message_content_height_cache = new Map();
 
 function show_more_link(row) {
@@ -221,7 +220,7 @@ exports.condense_and_collapse = function (elems) {
             // By default, condense a long message.
             condense_row($(elem));
         } else {
-            content.removeClass('condensed');
+            content.removeClass("condensed");
             $(elem).find(".message_expander").hide();
         }
 
@@ -235,7 +234,7 @@ exports.condense_and_collapse = function (elems) {
 };
 
 exports.initialize = function () {
-    $("#home").on("click", ".message_expander", function () {
+    $("#home").on("click", ".message_expander", function (e) {
         // Expanding a message can mean either uncollapsing or
         // uncondensing it.
         const row = $(this).closest(".message_row");
@@ -251,12 +250,16 @@ exports.initialize = function () {
             $(this).hide();
             row.find(".message_condenser").show();
         }
+        e.stopPropagation();
+        e.preventDefault();
     });
 
-    $("#home").on("click", ".message_condenser", function () {
+    $("#home").on("click", ".message_condenser", function (e) {
         const row = $(this).closest(".message_row");
         current_msg_list.get(rows.id(row)).condensed = true;
         condense_row(row);
+        e.stopPropagation();
+        e.preventDefault();
     });
 };
 

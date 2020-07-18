@@ -1,4 +1,4 @@
-const render_input_pill = require('../templates/input_pill.hbs');
+const render_input_pill = require("../templates/input_pill.hbs");
 
 // See https://zulip.readthedocs.io/en/latest/subsystems/input-pills.html
 exports.random_id = function () {
@@ -17,17 +17,17 @@ exports.create = function (opts) {
     };
 
     if (!opts.container) {
-        blueslip.error('Pill needs container.');
+        blueslip.error("Pill needs container.");
         return;
     }
 
     if (!opts.create_item_from_text) {
-        blueslip.error('Pill needs create_item_from_text');
+        blueslip.error("Pill needs create_item_from_text");
         return;
     }
 
     if (!opts.get_text_from_item) {
-        blueslip.error('Pill needs get_text_from_item');
+        blueslip.error("Pill needs get_text_from_item");
         return;
     }
 
@@ -47,7 +47,7 @@ exports.create = function (opts) {
     const funcs = {
         // return the value of the contenteditable input form.
         value: function (input_elem) {
-            return input_elem.innerText.trim();
+            return input_elem.innerText;
         },
 
         // clear the value of the input form.
@@ -64,7 +64,7 @@ exports.create = function (opts) {
             // in out widget that hasn't been turned into
             // pills.  We use it to decide things like
             // whether we're ready to send typing indicators.
-            return store.$input.text().trim() !== '';
+            return store.$input.text().trim() !== "";
         },
 
         create_item: function (text) {
@@ -89,7 +89,7 @@ exports.create = function (opts) {
             const id = exports.random_id();
 
             if (!item.display_value) {
-                blueslip.error('no display_value returned');
+                blueslip.error("no display_value returned");
                 return;
             }
 
@@ -187,16 +187,14 @@ exports.create = function (opts) {
 
         insertManyPills: function (pills) {
             if (typeof pills === "string") {
-                pills = pills.split(/,/g).map(function (pill) {
-                    return pill.trim();
-                });
+                pills = pills.split(/,/g).map((pill) => pill.trim());
             }
 
             // this is an array to push all the errored values to, so it's drafts
             // of pills for the user to fix.
             const drafts = [];
 
-            pills.forEach(function (pill) {
+            pills.forEach((pill) => {
                 // if this returns `false`, it erroed and we should push it to
                 // the draft pills.
                 if (funcs.appendPill(pill) === false) {
@@ -219,16 +217,23 @@ exports.create = function (opts) {
         },
 
         getByID: function (id) {
-            return store.pills.find(pill => pill.id === id);
+            return store.pills.find((pill) => pill.id === id);
         },
 
         items: function () {
-            return store.pills.map(pill => pill.item);
+            return store.pills.map((pill) => pill.item);
+        },
+
+        createPillonPaste: function () {
+            if (typeof store.createPillonPaste === "function") {
+                return store.createPillonPaste();
+            }
+            return true;
         },
     };
 
     (function events() {
-        store.$parent.on("keydown", ".input", function (e) {
+        store.$parent.on("keydown", ".input", (e) => {
             const char = e.keyCode || e.charCode;
 
             if (char === KEY.ENTER) {
@@ -239,7 +244,7 @@ exports.create = function (opts) {
 
                 // if there is input, grab the input, make a pill from it,
                 // and append the pill, then clear the input.
-                const value = funcs.value(e.target);
+                const value = funcs.value(e.target).trim();
                 if (value.length > 0) {
                     // append the pill and by proxy create the pill object.
                     const ret = funcs.appendPill(value);
@@ -259,7 +264,10 @@ exports.create = function (opts) {
 
             // if the user backspaces and there is input, just do normal char
             // deletion, otherwise delete the last pill in the sequence.
-            if (char === KEY.BACKSPACE && funcs.value(e.target).length === 0) {
+            if (
+                char === KEY.BACKSPACE &&
+                (funcs.value(e.target).length === 0 || window.getSelection().anchorOffset === 0)
+            ) {
                 e.preventDefault();
                 funcs.removeLastPill();
 
@@ -276,25 +284,23 @@ exports.create = function (opts) {
                 }
             }
 
-            // users should not be able to type a comma if the last field doesn't
-            // validate.
+            // Typing of the comma is prevented if the last field doesn't validate,
+            // as well as when the new pill is created.
             if (char === KEY.COMMA) {
                 // if the pill is successful, it will create the pill and clear
                 // the input.
                 if (funcs.appendPill(store.$input.text().trim()) !== false) {
                     funcs.clear(store.$input[0]);
-                // otherwise it will prevent the typing of the comma because they
-                // cannot add another pill until this input is valid.
-                } else {
-                    e.preventDefault();
-                    return;
                 }
+                e.preventDefault();
+
+                return;
             }
         });
 
         // handle events while hovering on ".pill" elements.
         // the three primary events are next, previous, and delete.
-        store.$parent.on("keydown", ".pill", function (e) {
+        store.$parent.on("keydown", ".pill", (e) => {
             const char = e.keyCode || e.charCode;
 
             const $pill = store.$parent.find(".pill:focus");
@@ -322,16 +328,18 @@ exports.create = function (opts) {
 
         // replace formatted input with plaintext to allow for sane copy-paste
         // actions.
-        store.$parent.on("paste", ".input", function (e) {
+        store.$parent.on("paste", ".input", (e) => {
             e.preventDefault();
 
             // get text representation of clipboard
-            const text = (e.originalEvent || e).clipboardData.getData('text/plain');
+            const text = (e.originalEvent || e).clipboardData.getData("text/plain");
 
             // insert text manually
             document.execCommand("insertText", false, text);
 
-            funcs.insertManyPills(store.$input.text().trim());
+            if (funcs.createPillonPaste()) {
+                funcs.insertManyPills(store.$input.text().trim());
+            }
         });
 
         // when the "×" is clicked on a pill, it should delete that pill and then
@@ -352,19 +360,23 @@ exports.create = function (opts) {
             }
         });
 
-        store.$parent.on("copy", ".pill", function (e) {
+        store.$parent.on("copy", ".pill", (e) => {
             const id = store.$parent.find(":focus").data("id");
             const data = funcs.getByID(id);
-            e.originalEvent.clipboardData.setData("text/plain", store.get_text_from_item(data.item));
+            e.originalEvent.clipboardData.setData(
+                "text/plain",
+                store.get_text_from_item(data.item),
+            );
             e.preventDefault();
         });
-    }());
+    })();
 
     // the external, user-accessible prototype.
     const prototype = {
         appendValue: funcs.appendPill.bind(funcs),
         appendValidatedData: funcs.appendValidatedData.bind(funcs),
 
+        getByID: funcs.getByID,
         items: funcs.items,
 
         onPillCreate: function (callback) {
@@ -373,6 +385,10 @@ exports.create = function (opts) {
 
         onPillRemove: function (callback) {
             store.removePillFunction = callback;
+        },
+
+        createPillonPaste: function (callback) {
+            store.createPillonPaste = callback;
         },
 
         clear: funcs.removeAllPills.bind(funcs),

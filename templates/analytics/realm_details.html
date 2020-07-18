@@ -1,8 +1,8 @@
 <span class="label">realm</span>
 <h3><img src="{{ realm_icon_url(realm) }}" class="support-realm-icon"> {{ realm.name }}</h3>
-<b>URL</b>: <a target="_blank" href="{{ realm.uri }}">{{ realm.uri }}</a> |
-<a target="_blank" href="/stats/realm/{{ realm.string_id }}/">stats</a> |
-<a target="_blank" href="/realm_activity/{{ realm.string_id }}/">activity</a><br>
+<b>URL</b>: <a target="_blank" rel="noopener noreferrer" href="{{ realm.uri }}">{{ realm.uri }}</a> |
+<a target="_blank" rel="noopener noreferrer" href="/stats/realm/{{ realm.string_id }}/">stats</a> |
+<a target="_blank" rel="noopener noreferrer" href="/realm_activity/{{ realm.string_id }}/">activity</a><br>
 <b>Date created</b>: {{ realm.date_created|timesince }} ago<br>
 <b>Admins</b>: {{ realm_admin_emails(realm) }}
 <a title="Copy emails" class="copy-button" data-copytext="{{ realm_admin_emails(realm) }}">
@@ -27,6 +27,16 @@
         <option value="2" {% if realm.plan_type == 2 %}selected{% endif %}>Limited</option>
         <option value="3" {% if realm.plan_type == 3 %}selected{% endif %}>Standard</option>
         <option value="4" {% if realm.plan_type == 4 %}selected{% endif %}>Standard Free</option>
+    </select>
+    <button type="submit" class="button rounded small support-submit-button">Update</button>
+</form>
+<form method="POST" class="sponsorship-pending-form">
+    <b>Sponsorship pending</b>:<br>
+    {{ csrf_input }}
+    <input type="hidden" name="realm_id" value="{{ realm.id }}" />
+    <select name="sponsorship_pending">
+        <option value="true" {% if realm.customer and realm.customer.sponsorship_pending %}selected{% endif %}>Yes</option>
+        <option value="false" {% if not realm.customer or not realm.customer.sponsorship_pending %}selected{% endif %}>No</option>
     </select>
     <button type="submit" class="button rounded small support-submit-button">Update</button>
 </form>

@@ -2,7 +2,7 @@
 
 import django.db.models.deletion
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -39,7 +39,8 @@ class Migration(migrations.Migration):
 
         # Sets realm for existing ScheduledEmails
         migrations.RunPython(set_realm_for_existing_scheduledemails,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
 
         # Require ScheduledEmail.realm to be non-null
         migrations.AlterField(

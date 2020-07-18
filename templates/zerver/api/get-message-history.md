@@ -1,13 +1,6 @@
 # Get a message's edit history
 
-Fetch the message edit history of a previously edited message.
-
-`GET {{ api_url }}/v1/messages/{message_id}/history`
-
-Note that edit history may be disabled in some organizations; see the
-[Zulip Help Center documentation on editing messages][edit-settings].
-
-[edit-settings]: /help/view-a-messages-edit-history
+{generate_api_description(/messages/{message_id}/history:get)}
 
 ## Usage examples
 
@@ -22,7 +15,7 @@ Note that edit history may be disabled in some organizations; see the
 
 {end_tabs}
 
-## Arguments
+## Parameters
 
 {generate_api_arguments_table|zulip.yaml|/messages/{message_id}/history:get}
 
@@ -30,18 +23,7 @@ Note that edit history may be disabled in some organizations; see the
 
 #### Return values
 
-* `message_history`: a chronologically sorted array of `snapshot` objects,
-    containing the modified state of the message before and after the edit:
-    * `topic`: the topic for the message.
-    * `content`: the body of the message.
-    * `rendered_content`: the already rendered, HTML version of `content`.
-    * `prev_content`: the body of the message before being edited.
-    * `prev_rendered_content`: the already rendered, HTML version of
-        `prev_content`.
-    * `user_id`: the ID of the user that made the edit.
-    * `content_html_diff`: an HTML diff between this version of the message
-        and the previous one.
-    * `timestamp`: the UNIX timestamp for this editi.
+{generate_return_values_table|zulip.yaml|/messages/{message_id}/history:get}
 
 Please note that the original message's snapshot only contains the fields
 `topic`, `content`, `rendered_content`, `timestamp` and `user_id`. This

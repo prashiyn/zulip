@@ -62,11 +62,9 @@ const ls = {
     // Remove keys which match a regex.
     removeDataRegex: function (version, regex) {
         const key_regex = new RegExp(this.formGetter(version, regex));
-        const keys = Object.keys(localStorage).filter(function (key) {
-            return key_regex.test(key);
-        });
+        const keys = Object.keys(localStorage).filter((key) => key_regex.test(key));
 
-        keys.forEach(function (key) {
+        keys.forEach((key) => {
             localStorage.removeItem(key);
         });
     },
@@ -152,8 +150,6 @@ const localstorage = function () {
         },
         set: function (version) {
             _data.VERSION = version;
-
-            return prototype;
         },
     });
 
@@ -164,10 +160,12 @@ let warned_of_localstorage = false;
 
 localstorage.supported = function supports_localstorage() {
     try {
-        return window.hasOwnProperty('localStorage') && window.localStorage !== null;
+        return window.localStorage !== undefined && window.localStorage !== null;
     } catch (e) {
         if (!warned_of_localstorage) {
-            blueslip.error("Client browser does not support local storage, will lose socket message on reload");
+            blueslip.error(
+                "Client browser does not support local storage, will lose socket message on reload",
+            );
             warned_of_localstorage = true;
         }
         return false;

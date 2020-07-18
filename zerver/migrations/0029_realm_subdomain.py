@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -29,5 +29,5 @@ class Migration(migrations.Migration):
             name='subdomain',
             field=models.CharField(max_length=40, unique=True, null=True),
         ),
-        migrations.RunPython(set_subdomain_of_default_realm)
+        migrations.RunPython(set_subdomain_of_default_realm, elidable=True),
     ]

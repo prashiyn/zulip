@@ -4,7 +4,7 @@ import time
 
 import lxml
 from django.db import migrations
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 BATCH_SIZE = 1000
@@ -22,7 +22,7 @@ def process_batch(apps: StateApps, id_start: int, id_end: int, last_id: int) -> 
             continue
 
         if message.id % 1000 == 0:
-            print("Processed %s / %s" % (message.id, last_id))
+            print(f"Processed {message.id} / {last_id}")
 
         # Because we maintain the Attachment table, this should be as
         # simple as just just checking if there's any Attachment
@@ -88,5 +88,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(fix_has_link,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
     ]

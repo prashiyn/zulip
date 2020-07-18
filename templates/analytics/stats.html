@@ -55,26 +55,7 @@
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <div class="right">
-                <div class="chart-container pie-chart">
-                    <div id="pie_messages_sent_by_type">
-                        <h1>{{ _("Messages sent by recipient type") }}</h1>
-                        <div id="id_messages_sent_by_message_type">
-                            <div class="spinner"></div>
-                        </div>
-                        <div id="pie_messages_sent_by_type_total" class="number-stat"></div>
-                        <div class="buttons">
-                            <button class="button" type="button" data-user="user">{{ _("Me") }}</button>
-                            <button class="button selected" type="button" data-user="everyone">{{ _("Everyone") }}</button>
-                            <button class="button" type="button" data-time="week">{{ _("Last week") }}</button>
-                            <button class="button selected" type="button" data-time="month">{{ _("Last month") }}</button>
-                            <button class="button" type="button" data-time="year">{{ _("Last year") }}</button>
-                            <button class="button" type="button" data-time="cumulative">{{ _("All time") }}</button>
-                        </div>
-                    </div>
-                </div>
                 <div class="chart-container">
                     <h1>{{ _("Active users") }}</h1>
                     <div class="button-container">
@@ -96,6 +77,47 @@
                     </div>
                 </div>
             </div>
+
+            <div class="right">
+                <div class="chart-container pie-chart">
+                    <div id="pie_messages_sent_by_type">
+                        <h1>{{ _("Messages sent by recipient type") }}</h1>
+                        <div id="id_messages_sent_by_message_type">
+                            <div class="spinner"></div>
+                        </div>
+                        <div id="pie_messages_sent_by_type_total" class="number-stat"></div>
+                        <div class="buttons">
+                            <button class="button" type="button" data-user="user">{{ _("Me") }}</button>
+                            <button class="button selected" type="button" data-user="everyone">{{ _("Everyone") }}</button>
+                            <button class="button" type="button" data-time="week">{{ _("Last week") }}</button>
+                            <button class="button selected" type="button" data-time="month">{{ _("Last month") }}</button>
+                            <button class="button" type="button" data-time="year">{{ _("Last year") }}</button>
+                            <button class="button" type="button" data-time="cumulative">{{ _("All time") }}</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h1>{{ _("Messages read over time") }}</h1>
+                    <div class="button-container">
+                        <label>{{ _("Aggregation") }}</label>
+                        <div class="buttons">
+                            <button class="button" type="button" id='read_daily_button'>{{ _("Daily") }} </button>
+                            <button class="button" type="button" id='read_weekly_button'>{{ _("Weekly") }} </button>
+                            <button class="button" type="button" id='read_cumulative_button'>{{ _("Cumulative") }} </button>
+                        </div>
+                    </div>
+                    <div id="id_messages_read_over_time">
+                        <div class="spinner"></div>
+                    </div>
+                    <div id="read_hover_info">
+                        <span id="read_hover_date"></span>
+                        <span id="read_hover_me">{{ _("Me") }}:</span>
+                        <span id="read_hover_me_value"></span>
+                        <b id="read_hover_everyone">{{ _("Everyone") }}:</b>
+                        <span id="read_hover_everyone_value"></span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="last-update">
@@ -103,7 +125,7 @@
             <span data-toggle="tooltip" class="last_update_tooltip" data-html="true" title="{% trans %}A full update of all the graphs happens once a day.<br/>The “Messages Sent Over Time” graph is updated once an hour.{% endtrans %}">
                 <span class="fa fa-info-circle" id="id_last_update_question_sign"></span>
             </span>
-            <br />
+            <br>
             <span class="docs_link"><a href="/help/analytics">{{ _("Analytics documentation") }}</a></span>
         </div>
     </div>

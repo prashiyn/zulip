@@ -1,13 +1,18 @@
 # Incoming webhook integrations
 
 An incoming webhook allows a third-party service to push data to Zulip when
-something happens.  There's two ways to do an incoming webhook in
+something happens.  There's several ways to do an incoming webhook in
 Zulip:
 
 * Use our [REST API](/api/rest) endpoint for [sending
   messages](/api/send-message).  This works great for internal tools
   or cases where the third-party tool wants to control the formatting
   of the messages in Zulip.
+* Use one of our supported [integration
+  frameworks](/integrations/doc/meta-integration), such as the
+  [Slack-compatible incoming webhook](/integrations/doc/slack_incoming),
+  [Zapier integration](/integrations/docs/zapier), or
+  [IFTTT integration](/integrations/doc/ifttt).
 * Adding an incoming webhook integration (detailed on this page),
   where all the logic for formatting the Zulip messages lives in the
   Zulip server.  This is how most of [Zulip's official
@@ -104,7 +109,7 @@ below are for a webhook named `MyWebHook`.
 
 * Consider using our Zulip markup to make the output from your
   integration especially attractive or useful (e.g.  emoji, markdown
-  emphasis, @-mentions, or `!avatar(email)`).
+  emphasis or @-mentions).
 
 * Use topics effectively to ensure sequential messages about the same
   thing are threaded together; this makes for much better consumption

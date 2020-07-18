@@ -1,48 +1,93 @@
-from typing import Any, DefaultDict, Dict, List, Set, Tuple, TypeVar, \
-    Union, Optional, Sequence, AbstractSet, Callable, Iterable
-
-from django.db import models
-from django.db.models.query import QuerySet
-from django.db.models import Manager, Q, Sum, CASCADE
-from django.conf import settings
-from django.contrib.auth.models import AbstractBaseUser, UserManager, \
-    PermissionsMixin
-import django.contrib.auth
-from django.core.exceptions import ValidationError
-from django.core.validators import URLValidator, MinLengthValidator, \
-    RegexValidator, validate_email
-from zerver.lib.cache import cache_with_key, flush_user_profile, flush_realm, \
-    user_profile_by_api_key_cache_key, active_non_guest_user_ids_cache_key, \
-    user_profile_by_id_cache_key, user_profile_by_email_cache_key, \
-    user_profile_cache_key, generic_bulk_cached_fetch, cache_set, flush_stream, \
-    cache_delete, active_user_ids_cache_key, \
-    get_stream_cache_key, realm_user_dicts_cache_key, \
-    bot_dicts_in_realm_cache_key, realm_user_dict_fields, \
-    bot_dict_fields, flush_message, flush_submessage, bot_profile_cache_key, \
-    flush_used_upload_space_cache, get_realm_used_upload_space_cache_key
-from zerver.lib.utils import make_safe_digest, generate_random_token
-from django.db import transaction
-from django.utils.timezone import now as timezone_now
-from zerver.lib.timestamp import datetime_to_timestamp
-from django.db.models.signals import post_save, post_delete
-from django.utils.translation import ugettext_lazy as _
-from zerver.lib import cache
-from zerver.lib.validator import check_int, \
-    check_short_string, check_long_string, validate_choice_field, check_date, \
-    check_url, check_list
-from zerver.lib.types import Validator, ExtendedValidator, \
-    ProfileDataElement, ProfileData, RealmUserValidator, \
-    ExtendedFieldElement, UserFieldElement, FieldElement, \
-    DisplayRecipientT
-
-from bitfield import BitField
-from bitfield.types import BitHandler
+import ast
+import datetime
+import re
+import time
 from collections import defaultdict
 from datetime import timedelta
-import re
-import sre_constants
-import time
-import datetime
+from typing import (
+    AbstractSet,
+    Any,
+    Callable,
+    DefaultDict,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
+
+import django.contrib.auth
+from bitfield import BitField
+from bitfield.types import BitHandler
+from django.conf import settings
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, UserManager
+from django.contrib.postgres.fields import JSONField
+from django.core.exceptions import ValidationError
+from django.core.validators import MinLengthValidator, RegexValidator, URLValidator, validate_email
+from django.db import models, transaction
+from django.db.models import CASCADE, Manager, Q, Sum
+from django.db.models.query import QuerySet
+from django.db.models.signals import post_delete, post_save
+from django.utils.timezone import now as timezone_now
+from django.utils.translation import ugettext_lazy as _
+
+from confirmation import settings as confirmation_settings
+from zerver.lib import cache
+from zerver.lib.cache import (
+    active_non_guest_user_ids_cache_key,
+    active_user_ids_cache_key,
+    bot_dict_fields,
+    bot_dicts_in_realm_cache_key,
+    bot_profile_cache_key,
+    bulk_cached_fetch,
+    cache_delete,
+    cache_set,
+    cache_with_key,
+    flush_message,
+    flush_realm,
+    flush_stream,
+    flush_submessage,
+    flush_used_upload_space_cache,
+    flush_user_profile,
+    get_realm_used_upload_space_cache_key,
+    get_stream_cache_key,
+    realm_alert_words_automaton_cache_key,
+    realm_alert_words_cache_key,
+    realm_user_dict_fields,
+    realm_user_dicts_cache_key,
+    user_profile_by_api_key_cache_key,
+    user_profile_by_email_cache_key,
+    user_profile_by_id_cache_key,
+    user_profile_cache_key,
+)
+from zerver.lib.exceptions import JsonableError
+from zerver.lib.pysa import mark_sanitized
+from zerver.lib.timestamp import datetime_to_timestamp
+from zerver.lib.types import (
+    DisplayRecipientT,
+    ExtendedFieldElement,
+    ExtendedValidator,
+    FieldElement,
+    ProfileData,
+    ProfileDataElementBase,
+    RealmUserValidator,
+    UserFieldElement,
+    Validator,
+)
+from zerver.lib.utils import generate_random_token, make_safe_digest
+from zerver.lib.validator import (
+    check_date,
+    check_int,
+    check_list,
+    check_long_string,
+    check_short_string,
+    check_url,
+    validate_choice_field,
+)
 
 MAX_TOPIC_NAME_LENGTH = 60
 MAX_MESSAGE_LENGTH = 10000
@@ -61,10 +106,9 @@ def query_for_ids(query: QuerySet, user_ids: List[int], field: str) -> QuerySet:
     guard against empty lists of user_ids.
     '''
     assert(user_ids)
-    value_list = ', '.join(str(int(user_id)) for user_id in user_ids)
-    clause = '%s in (%s)' % (field, value_list)
+    clause = f'{field} IN %s'
     query = query.extra(
-        where=[clause]
+        where=[clause], params=(tuple(user_ids),),
     )
     return query
 
@@ -96,14 +140,14 @@ def get_display_recipient(recipient: 'Recipient') -> DisplayRecipientT:
     return get_display_recipient_by_id(
         recipient.id,
         recipient.type,
-        recipient.type_id
+        recipient.type_id,
     )
 
 def get_realm_emoji_cache_key(realm: 'Realm') -> str:
-    return 'realm_emoji:%s' % (realm.id,)
+    return f'realm_emoji:{realm.id}'
 
 def get_active_realm_emoji_cache_key(realm: 'Realm') -> str:
-    return 'active_realm_emoji:%s' % (realm.id,)
+    return f'active_realm_emoji:{realm.id}'
 
 # This simple call-once caching saves ~500us in auth_enabled_helper,
 # which is a significant optimization for common_context.  Note that
@@ -125,12 +169,14 @@ def clear_supported_auth_backends_cache() -> None:
 class Realm(models.Model):
     MAX_REALM_NAME_LENGTH = 40
     MAX_REALM_SUBDOMAIN_LENGTH = 40
-    MAX_GOOGLE_HANGOUTS_DOMAIN_LENGTH = 255  # This is just the maximum domain length by RFC
+
     INVITES_STANDARD_REALM_DAILY_MAX = 3000
     MESSAGE_VISIBILITY_LIMITED = 10000
     AUTHENTICATION_FLAGS = ['Google', 'Email', 'GitHub', 'LDAP', 'Dev',
-                            'RemoteUser', 'AzureAD', 'SAML', 'GitLab']
+                            'RemoteUser', 'AzureAD', 'SAML', 'GitLab', 'Apple']
     SUBDOMAIN_FOR_ROOT_DOMAIN = ''
+
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
 
     # User-visible display name and description used on e.g. the organization homepage
     name: Optional[str] = models.CharField(max_length=MAX_REALM_NAME_LENGTH, null=True)
@@ -152,7 +198,7 @@ class Realm(models.Model):
     _max_invites: Optional[int] = models.IntegerField(null=True, db_column='max_invites')
     disallow_disposable_email_addresses: bool = models.BooleanField(default=True)
     authentication_methods: BitHandler = BitField(
-        flags=AUTHENTICATION_FLAGS, default=2**31 - 1
+        flags=AUTHENTICATION_FLAGS, default=2**31 - 1,
     )
 
     # Whether the organization has enabled inline image and URL previews.
@@ -217,7 +263,7 @@ class Realm(models.Model):
     EMAIL_ADDRESS_VISIBILITY_ADMINS = 3
     EMAIL_ADDRESS_VISIBILITY_NOBODY = 4
     email_address_visibility: int = models.PositiveSmallIntegerField(
-        default=EMAIL_ADDRESS_VISIBILITY_EVERYONE
+        default=EMAIL_ADDRESS_VISIBILITY_EVERYONE,
     )
     EMAIL_ADDRESS_VISIBILITY_TYPES = [
         EMAIL_ADDRESS_VISIBILITY_EVERYONE,
@@ -234,13 +280,13 @@ class Realm(models.Model):
     allow_message_deleting: bool = models.BooleanField(default=False)
     DEFAULT_MESSAGE_CONTENT_DELETE_LIMIT_SECONDS = 600  # if changed, also change in admin.js, setting_org.js
     message_content_delete_limit_seconds: int = models.IntegerField(
-        default=DEFAULT_MESSAGE_CONTENT_DELETE_LIMIT_SECONDS
+        default=DEFAULT_MESSAGE_CONTENT_DELETE_LIMIT_SECONDS,
     )
 
     allow_message_editing: bool = models.BooleanField(default=True)
     DEFAULT_MESSAGE_CONTENT_EDIT_LIMIT_SECONDS = 600  # if changed, also change in admin.js, setting_org.js
     message_content_edit_limit_seconds: int = models.IntegerField(
-        default=DEFAULT_MESSAGE_CONTENT_EDIT_LIMIT_SECONDS
+        default=DEFAULT_MESSAGE_CONTENT_EDIT_LIMIT_SECONDS,
     )
 
     # Whether users have access to message edit history
@@ -257,14 +303,17 @@ class Realm(models.Model):
     INITIAL_PRIVATE_STREAM_NAME = 'core team'
     STREAM_EVENTS_NOTIFICATION_TOPIC = _('stream events')
     notifications_stream: Optional["Stream"] = models.ForeignKey(
-        "Stream", related_name="+", null=True, blank=True, on_delete=CASCADE
+        "Stream", related_name="+", null=True, blank=True, on_delete=CASCADE,
     )
     signup_notifications_stream: Optional["Stream"] = models.ForeignKey(
-        "Stream", related_name="+", null=True, blank=True, on_delete=CASCADE
+        "Stream", related_name="+", null=True, blank=True, on_delete=CASCADE,
     )
 
+    MESSAGE_RETENTION_SPECIAL_VALUES_MAP = {
+        'forever': -1,
+    }
     # For old messages being automatically deleted
-    message_retention_days: Optional[int] = models.IntegerField(null=True)
+    message_retention_days: int = models.IntegerField(null=False, default=-1)
 
     # When non-null, all but the latest this many messages in the organization
     # are inaccessible to users (but not deleted).
@@ -280,8 +329,8 @@ class Realm(models.Model):
 
     UPGRADE_TEXT_STANDARD = _("Available on Zulip Standard. Upgrade to access.")
     # plan_type controls various features around resource/feature
-    # limitations for a Zulip organization on multi-tenant servers
-    # like zulipchat.com.
+    # limitations for a Zulip organization on multi-tenant installations
+    # like Zulip Cloud.
     SELF_HOSTED = 1
     LIMITED = 2
     STANDARD = 3
@@ -308,26 +357,29 @@ class Realm(models.Model):
     VIDEO_CHAT_PROVIDERS = {
         'disabled': {
             'name': "None",
-            'id': 0
+            'id': 0,
         },
         'jitsi_meet': {
             'name': "Jitsi Meet",
-            'id': 1
+            'id': 1,
         },
-        'google_hangouts': {
-            'name': "Google Hangouts",
-            'id': 2
-        },
-        'zoom': {
-            'name': "Zoom",
-            'id': 3
-        }
+        # ID 2 was used for the now-deleted Google Hangouts.
+        # ID 3 reserved for optional Zoom, see below.
     }
-    video_chat_provider = models.PositiveSmallIntegerField(default=VIDEO_CHAT_PROVIDERS['jitsi_meet']['id'])
-    google_hangouts_domain = models.TextField(default="")
-    zoom_user_id = models.TextField(default="")
-    zoom_api_key = models.TextField(default="")
-    zoom_api_secret = models.TextField(default="")
+
+    if settings.VIDEO_ZOOM_CLIENT_ID is not None and settings.VIDEO_ZOOM_CLIENT_SECRET is not None:
+        VIDEO_CHAT_PROVIDERS['zoom'] = {
+            'name': "Zoom",
+            'id': 3,
+        }
+
+    if settings.BIG_BLUE_BUTTON_SECRET is not None and settings.BIG_BLUE_BUTTON_URL is not None:
+        VIDEO_CHAT_PROVIDERS['big_blue_button'] = {
+            'name': "Big Blue Button",
+            'id': 4
+        }
+
+    video_chat_provider: int = models.PositiveSmallIntegerField(default=VIDEO_CHAT_PROVIDERS['jitsi_meet']['id'])
 
     default_code_block_language: Optional[str] = models.TextField(null=True, default=None)
 
@@ -346,10 +398,6 @@ class Realm(models.Model):
         disallow_disposable_email_addresses=bool,
         email_address_visibility=int,
         email_changes_disabled=bool,
-        google_hangouts_domain=str,
-        zoom_user_id=str,
-        zoom_api_key=str,
-        zoom_api_secret=str,
         invite_required=bool,
         invite_by_admins_only=bool,
         inline_image_preview=bool,
@@ -380,7 +428,7 @@ class Realm(models.Model):
         (ICON_UPLOADED, 'Uploaded by administrator'),
     )
     icon_source: str = models.CharField(
-        default=ICON_FROM_GRAVATAR, choices=ICON_SOURCES, max_length=1
+        default=ICON_FROM_GRAVATAR, choices=ICON_SOURCES, max_length=1,
     )
     icon_version: int = models.PositiveSmallIntegerField(default=1)
 
@@ -392,12 +440,12 @@ class Realm(models.Model):
         (LOGO_UPLOADED, 'Uploaded by administrator'),
     )
     logo_source: str = models.CharField(
-        default=LOGO_DEFAULT, choices=LOGO_SOURCES, max_length=1
+        default=LOGO_DEFAULT, choices=LOGO_SOURCES, max_length=1,
     )
     logo_version: int = models.PositiveSmallIntegerField(default=1)
 
     night_logo_source: str = models.CharField(
-        default=LOGO_DEFAULT, choices=LOGO_SOURCES, max_length=1
+        default=LOGO_DEFAULT, choices=LOGO_SOURCES, max_length=1,
     )
     night_logo_version: int = models.PositiveSmallIntegerField(default=1)
 
@@ -412,6 +460,9 @@ class Realm(models.Model):
 
         ret: Dict[str, bool] = {}
         supported_backends = [backend.__class__ for backend in supported_auth_backends()]
+        # `authentication_methods` is a bitfield.types.BitHandler, not
+        # a true dict; since it is still python2- and python3-compat,
+        # `iteritems` is its method to iterate over its contents.
         for k, v in self.authentication_methods.iteritems():
             backend = AUTH_BACKEND_NAME_MAP[k]
             if backend in supported_backends:
@@ -419,7 +470,7 @@ class Realm(models.Model):
         return ret
 
     def __str__(self) -> str:
-        return "<Realm: %s %s>" % (self.string_id, self.id)
+        return f"<Realm: {self.string_id} {self.id}>"
 
     @cache_with_key(get_realm_emoji_cache_key, timeout=3600*24*7)
     def get_emoji(self) -> Dict[str, Dict[str, Iterable[str]]]:
@@ -435,8 +486,9 @@ class Realm(models.Model):
         notifications to all administrator users.
         """
         # TODO: Change return type to QuerySet[UserProfile]
-        return UserProfile.objects.filter(realm=self, role=UserProfile.ROLE_REALM_ADMINISTRATOR,
-                                          is_active=True)
+        return UserProfile.objects.filter(realm=self, is_active=True,
+                                          role__in=[UserProfile.ROLE_REALM_ADMINISTRATOR,
+                                                    UserProfile.ROLE_REALM_OWNER])
 
     def get_human_admin_users(self) -> QuerySet:
         """Use this in contexts where we want only human users with
@@ -444,13 +496,18 @@ class Realm(models.Model):
         realm's administrators (bots don't have real email addresses).
         """
         # TODO: Change return type to QuerySet[UserProfile]
-        return UserProfile.objects.filter(realm=self, is_bot=False,
-                                          role=UserProfile.ROLE_REALM_ADMINISTRATOR,
-                                          is_active=True)
+        return UserProfile.objects.filter(realm=self, is_bot=False, is_active=True,
+                                          role__in=[UserProfile.ROLE_REALM_ADMINISTRATOR,
+                                                    UserProfile.ROLE_REALM_OWNER])
 
     def get_active_users(self) -> Sequence['UserProfile']:
         # TODO: Change return type to QuerySet[UserProfile]
         return UserProfile.objects.filter(realm=self, is_active=True).select_related()
+
+    def get_human_owner_users(self) -> QuerySet:
+        return UserProfile.objects.filter(realm=self, is_bot=False,
+                                          role=UserProfile.ROLE_REALM_OWNER,
+                                          is_active=True)
 
     def get_bot_domain(self) -> str:
         return get_fake_email_domain()
@@ -489,6 +546,10 @@ class Realm(models.Model):
             return 0
         return used_space
 
+    def ensure_not_on_limited_plan(self) -> None:
+        if self.plan_type == Realm.LIMITED:
+            raise JsonableError(self.UPGRADE_TEXT_STANDARD)
+
     @property
     def subdomain(self) -> str:
         return self.string_id
@@ -507,13 +568,15 @@ class Realm(models.Model):
 
     @property
     def host(self) -> str:
-        return self.host_for_subdomain(self.subdomain)
+        # Use mark sanitized to prevent false positives from Pysa thinking that
+        # the host is user controlled.
+        return mark_sanitized(self.host_for_subdomain(self.subdomain))
 
     @staticmethod
     def host_for_subdomain(subdomain: str) -> str:
         if subdomain == Realm.SUBDOMAIN_FOR_ROOT_DOMAIN:
             return settings.EXTERNAL_HOST
-        default_host = "%s.%s" % (subdomain, settings.EXTERNAL_HOST)
+        default_host = f"{subdomain}.{settings.EXTERNAL_HOST}"
         return settings.REALM_HOSTS.get(subdomain, default_host)
 
     @property
@@ -550,10 +613,11 @@ def avatar_changes_disabled(realm: Realm) -> bool:
 class RealmDomain(models.Model):
     """For an organization with emails_restricted_to_domains enabled, the list of
     allowed domains"""
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     # should always be stored lowercase
     domain: str = models.CharField(max_length=80, db_index=True)
-    allow_subdomains = models.BooleanField(default=False)
+    allow_subdomains: bool = models.BooleanField(default=False)
 
     class Meta:
         unique_together = ("realm", "domain")
@@ -584,8 +648,9 @@ def get_realm_domains(realm: Realm) -> List[Dict[str, str]]:
     return list(realm.realmdomain_set.values('domain', 'allow_subdomains'))
 
 class RealmEmoji(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     author: Optional["UserProfile"] = models.ForeignKey(
-        "UserProfile", blank=True, null=True, on_delete=CASCADE
+        "UserProfile", blank=True, null=True, on_delete=CASCADE,
     )
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     name: str = models.TextField(validators=[
@@ -603,11 +668,7 @@ class RealmEmoji(models.Model):
     PATH_ID_TEMPLATE = "{realm_id}/emoji/images/{emoji_file_name}"
 
     def __str__(self) -> str:
-        return "<RealmEmoji(%s): %s %s %s %s>" % (self.realm.string_id,
-                                                  self.id,
-                                                  self.name,
-                                                  self.deactivated,
-                                                  self.file_name)
+        return f"<RealmEmoji({self.realm.string_id}): {self.id} {self.name} {self.deactivated} {self.file_name}>"
 
 def get_realm_emoji_dicts(realm: Realm,
                           only_active_emojis: bool=False) -> Dict[str, Dict[str, Any]]:
@@ -618,18 +679,15 @@ def get_realm_emoji_dicts(realm: Realm,
     from zerver.lib.emoji import get_emoji_url
 
     for realm_emoji in query.all():
-        author = None
+        author_id = None
         if realm_emoji.author:
-            author = {
-                'id': realm_emoji.author.id,
-                'email': realm_emoji.author.email,
-                'full_name': realm_emoji.author.full_name}
+            author_id = realm_emoji.author_id
         emoji_url = get_emoji_url(realm_emoji.file_name, realm_emoji.realm_id)
         d[str(realm_emoji.id)] = dict(id=str(realm_emoji.id),
                                       name=realm_emoji.name,
                                       source_url=emoji_url,
                                       deactivated=realm_emoji.deactivated,
-                                      author=author)
+                                      author_id=author_id)
     return d
 
 def get_realm_emoji_uncached(realm: Realm) -> Dict[str, Dict[str, Any]]:
@@ -664,7 +722,7 @@ def filter_pattern_validator(value: str) -> None:
 
     try:
         re.compile(value)
-    except sre_constants.error:
+    except re.error:
         # Regex is invalid
         raise ValidationError(error_msg)
 
@@ -678,6 +736,7 @@ class RealmFilter(models.Model):
     """Realm-specific regular expressions to automatically linkify certain
     strings inside the markdown processor.  See "Custom filters" in the settings UI.
     """
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     pattern: str = models.TextField(validators=[filter_pattern_validator])
     url_format_string: str = models.TextField(validators=[URLValidator(), filter_format_validator])
@@ -686,10 +745,10 @@ class RealmFilter(models.Model):
         unique_together = ("realm", "pattern")
 
     def __str__(self) -> str:
-        return "<RealmFilter(%s): %s %s>" % (self.realm.string_id, self.pattern, self.url_format_string)
+        return f"<RealmFilter({self.realm.string_id}): {self.pattern} {self.url_format_string}>"
 
 def get_realm_filters_cache_key(realm_id: int) -> str:
-    return '%s:all_realm_filters:%s' % (cache.KEY_PREFIX, realm_id,)
+    return f'{cache.KEY_PREFIX}:all_realm_filters:{realm_id}'
 
 # We have a per-process cache to avoid doing 1000 remote cache queries during page load
 per_request_realm_filters_cache: Dict[int, List[Tuple[str, str, int]]] = {}
@@ -744,6 +803,7 @@ def flush_per_request_caches() -> None:
 # (used by the Message table) to the type-specific unique id (the
 # stream id, user_profile id, or huddle id).
 class Recipient(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     type_id: int = models.IntegerField(db_index=True)
     type: int = models.PositiveSmallIntegerField(db_index=True)
     # Valid types are {personal, stream, huddle}
@@ -766,7 +826,7 @@ class Recipient(models.Model):
 
     def __str__(self) -> str:
         display_recipient = get_display_recipient(self)
-        return "<Recipient: %s (%d, %s)>" % (display_recipient, self.type_id, self.type)
+        return f"<Recipient: {display_recipient} ({self.type_id}, {self.type})>"
 
 class UserProfile(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = 'email'
@@ -803,6 +863,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
         EMBEDDED_BOT,
     ]
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+
     # For historical reasons, Zulip has two email fields.  The
     # `delivery_email` field is the user's email address, where all
     # email notifications will be sent, and is used for all
@@ -823,25 +885,17 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     # Foreign key to the Recipient object for PERSONAL type messages to this user.
     recipient = models.ForeignKey(Recipient, null=True, on_delete=models.SET_NULL)
 
-    # The user's name.  We prefer the model of a full_name and
-    # short_name over first+last because cultures vary on how many
+    # The user's name.  We prefer the model of a full_name
+    # over first+last because cultures vary on how many
     # names one has, whether the family name is first or last, etc.
     # It also allows organizations to encode a bit of non-name data in
     # the "name" attribute if desired, like gender pronouns,
-    # graduation year, etc.  The short_name attribute is currently not
-    # used anywhere, but the intent is that it would be used as the
-    # shorter familiar name for addressing the user in the UI.
+    # graduation year, etc.
     full_name: str = models.CharField(max_length=MAX_NAME_LENGTH)
-    short_name: str = models.CharField(max_length=MAX_NAME_LENGTH)
 
     date_joined: datetime.datetime = models.DateTimeField(default=timezone_now)
     tos_version: Optional[str] = models.CharField(null=True, max_length=10)
     api_key: str = models.CharField(max_length=API_KEY_LENGTH)
-
-    # pointer points to Message.id, NOT UserMessage.id.
-    pointer: int = models.IntegerField()
-
-    last_pointer_updater: str = models.CharField(max_length=64)
 
     # Whether the user has access to server-level administrator pages, like /activity
     is_staff: bool = models.BooleanField(default=False)
@@ -864,12 +918,19 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     # future roles to be inserted between currently adjacent
     # roles. These constants appear in RealmAuditLog.extra_data, so
     # changes to them will require a migration of RealmAuditLog.
-    # ROLE_REALM_OWNER = 100
+    ROLE_REALM_OWNER = 100
     ROLE_REALM_ADMINISTRATOR = 200
     # ROLE_MODERATOR = 300
     ROLE_MEMBER = 400
     ROLE_GUEST = 600
     role: int = models.PositiveSmallIntegerField(default=ROLE_MEMBER, db_index=True)
+
+    ROLE_TYPES = [
+        ROLE_REALM_OWNER,
+        ROLE_REALM_ADMINISTRATOR,
+        ROLE_MEMBER,
+        ROLE_GUEST,
+    ]
 
     # Whether the user has been "soft-deactivated" due to weeks of inactivity.
     # For these users we avoid doing UserMessage table work, as an optimization
@@ -917,9 +978,7 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     enable_digest_emails: bool = models.BooleanField(default=True)
     enable_login_emails: bool = models.BooleanField(default=True)
     realm_name_in_notifications: bool = models.BooleanField(default=False)
-
-    # Words that trigger a mention for this user, formatted as a json-serialized list of strings
-    alert_words: str = models.TextField(default='[]')
+    presence_enabled: bool = models.BooleanField(default=True)
 
     # Used for rate-limiting certain automated messages generated by bots
     last_reminder: Optional[datetime.datetime] = models.DateTimeField(default=None, null=True)
@@ -936,15 +995,15 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
 
     # Default streams for some deprecated/legacy classes of bot users.
     default_sending_stream: Optional["Stream"] = models.ForeignKey(
-        "zerver.Stream", null=True, related_name="+", on_delete=CASCADE
+        "zerver.Stream", null=True, related_name="+", on_delete=CASCADE,
     )
     default_events_register_stream: Optional["Stream"] = models.ForeignKey(
-        "zerver.Stream", null=True, related_name="+", on_delete=CASCADE
+        "zerver.Stream", null=True, related_name="+", on_delete=CASCADE,
     )
     default_all_public_streams: bool = models.BooleanField(default=False)
 
     # UI vars
-    enter_sends: Optional[bool] = models.NullBooleanField(default=False)
+    enter_sends: Optional[bool] = models.BooleanField(null=True, default=False)
     left_side_userlist: bool = models.BooleanField(default=False)
 
     # display settings
@@ -952,10 +1011,18 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     dense_mode: bool = models.BooleanField(default=True)
     fluid_layout_width: bool = models.BooleanField(default=False)
     high_contrast_mode: bool = models.BooleanField(default=False)
-    night_mode: bool = models.BooleanField(default=False)
     translate_emoticons: bool = models.BooleanField(default=False)
     twenty_four_hour_time: bool = models.BooleanField(default=False)
     starred_message_counts: bool = models.BooleanField(default=False)
+    COLOR_SCHEME_AUTOMATIC = 1
+    COLOR_SCHEME_NIGHT = 2
+    COLOR_SCHEME_LIGHT = 3
+    COLOR_SCHEME_CHOICES = [
+        COLOR_SCHEME_AUTOMATIC,
+        COLOR_SCHEME_NIGHT,
+        COLOR_SCHEME_LIGHT
+    ]
+    color_scheme: int = models.PositiveSmallIntegerField(default=COLOR_SCHEME_AUTOMATIC)
 
     # UI setting controlling Zulip's behavior of demoting in the sort
     # order and graying out streams with no recent traffic.  The
@@ -967,9 +1034,9 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     DEMOTE_STREAMS_CHOICES = [
         DEMOTE_STREAMS_AUTOMATIC,
         DEMOTE_STREAMS_ALWAYS,
-        DEMOTE_STREAMS_NEVER
+        DEMOTE_STREAMS_NEVER,
     ]
-    demote_inactive_streams = models.PositiveSmallIntegerField(default=DEMOTE_STREAMS_AUTOMATIC)
+    demote_inactive_streams: int = models.PositiveSmallIntegerField(default=DEMOTE_STREAMS_AUTOMATIC)
 
     # A timezone name from the `tzdata` database, as found in pytz.all_timezones.
     #
@@ -1016,10 +1083,13 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
     # completed.
     onboarding_steps: str = models.TextField(default='[]')
 
+    zoom_token: Optional[object] = JSONField(default=None, null=True)
+
     objects: UserManager = UserManager()
 
     # Define the types of the various automatically managed properties
     property_types = dict(
+        color_scheme=int,
         default_language=str,
         demote_inactive_streams=int,
         dense_mode=bool,
@@ -1027,7 +1097,6 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
         fluid_layout_width=bool,
         high_contrast_mode=bool,
         left_side_userlist=bool,
-        night_mode=bool,
         starred_message_counts=bool,
         timezone=str,
         translate_emoticons=bool,
@@ -1052,10 +1121,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
         pm_content_in_desktop_notifications=bool,
         desktop_icon_count_display=int,
         realm_name_in_notifications=bool,
+        presence_enabled=bool,
     )
-
-    class Meta:
-        unique_together = (('realm', 'email'),)
 
     @property
     def profile_data(self) -> ProfileData:
@@ -1074,9 +1141,16 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
                 value = converter(value)
 
             field_data = field.as_dict()
-            field_data['value'] = value
-            field_data['rendered_value'] = rendered_value
-            data.append(field_data)
+            data.append({
+                'id': field_data['id'],
+                'name': field_data['name'],
+                'type': field_data['type'],
+                'hint': field_data['hint'],
+                'field_data': field_data['field_data'],
+                'order': field_data['order'],
+                'value': value,
+                'rendered_value': rendered_value,
+            })
 
         return data
 
@@ -1090,7 +1164,7 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
             return False
 
     def __str__(self) -> str:
-        return "<UserProfile: %s %s>" % (self.email, self.realm)
+        return f"<UserProfile: {self.email} {self.realm}>"
 
     @property
     def is_new_member(self) -> bool:
@@ -1101,7 +1175,8 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_realm_admin(self) -> bool:
-        return self.role == UserProfile.ROLE_REALM_ADMINISTRATOR
+        return self.role == UserProfile.ROLE_REALM_ADMINISTRATOR or \
+            self.role == UserProfile.ROLE_REALM_OWNER
 
     @is_realm_admin.setter
     def is_realm_admin(self, value: bool) -> None:
@@ -1111,6 +1186,14 @@ class UserProfile(AbstractBaseUser, PermissionsMixin):
             # We need to be careful to not accidentally change
             # ROLE_GUEST to ROLE_MEMBER here.
             self.role = UserProfile.ROLE_MEMBER
+
+    @property
+    def has_billing_access(self) -> bool:
+        return self.is_realm_admin or self.is_billing_admin
+
+    @property
+    def is_realm_owner(self) -> bool:
+        return self.role == UserProfile.ROLE_REALM_OWNER
 
     @property
     def is_guest(self) -> bool:
@@ -1213,17 +1296,19 @@ class PasswordTooWeakError(Exception):
     pass
 
 class UserGroup(models.Model):
-    name = models.CharField(max_length=100)
-    members = models.ManyToManyField(UserProfile, through='UserGroupMembership')
-    realm = models.ForeignKey(Realm, on_delete=CASCADE)
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+    name: str = models.CharField(max_length=100)
+    members: Manager = models.ManyToManyField(UserProfile, through='UserGroupMembership')
+    realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     description: str = models.TextField(default='')
 
     class Meta:
         unique_together = (('realm', 'name'),)
 
 class UserGroupMembership(models.Model):
-    user_group = models.ForeignKey(UserGroup, on_delete=CASCADE)
-    user_profile = models.ForeignKey(UserProfile, on_delete=CASCADE)
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+    user_group: UserGroup = models.ForeignKey(UserGroup, on_delete=CASCADE)
+    user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
 
     class Meta:
         unique_together = (('user_group', 'user_profile'),)
@@ -1264,19 +1349,20 @@ class PreregistrationUser(models.Model):
     #   from the authentication step and pass it to the registration
     #   form.
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     email: str = models.EmailField()
 
     # If the pre-registration process provides a suggested full name for this user,
     # store it here to use it to prepopulate the Full Name field in the registration form:
     full_name: Optional[str] = models.CharField(max_length=UserProfile.MAX_NAME_LENGTH, null=True)
-    full_name_validated = models.BooleanField(default=False)
+    full_name_validated: bool = models.BooleanField(default=False)
     referred_by: Optional[UserProfile] = models.ForeignKey(UserProfile, null=True, on_delete=CASCADE)
     streams: Manager = models.ManyToManyField('Stream')
     invited_at: datetime.datetime = models.DateTimeField(auto_now=True)
-    realm_creation = models.BooleanField(default=False)
+    realm_creation: bool = models.BooleanField(default=False)
     # Indicates whether the user needs a password.  Users who were
     # created via SSO style auth (e.g. GitHub/Google) generally do not.
-    password_required = models.BooleanField(default=True)
+    password_required: bool = models.BooleanField(default=True)
 
     # status: whether an object has been confirmed.
     #   if confirmed, set to confirmation.settings.STATUS_ACTIVE
@@ -1290,19 +1376,30 @@ class PreregistrationUser(models.Model):
     # settings_invites.invited_as_values in
     # static/js/settings_invites.js
     INVITE_AS = dict(
-        MEMBER = 1,
-        REALM_ADMIN = 2,
-        GUEST_USER = 3,
+        REALM_OWNER = 100,
+        REALM_ADMIN = 200,
+        MEMBER = 400,
+        GUEST_USER = 600,
     )
     invited_as: int = models.PositiveSmallIntegerField(default=INVITE_AS['MEMBER'])
 
+def filter_to_valid_prereg_users(query: QuerySet) -> QuerySet:
+    days_to_activate = settings.INVITATION_LINK_VALIDITY_DAYS
+    active_value = confirmation_settings.STATUS_ACTIVE
+    revoked_value = confirmation_settings.STATUS_REVOKED
+    lowest_datetime = timezone_now() - datetime.timedelta(days=days_to_activate)
+    return query.exclude(status__in=[active_value, revoked_value]).filter(
+        invited_at__gte=lowest_datetime)
+
 class MultiuseInvite(models.Model):
-    referred_by = models.ForeignKey(UserProfile, on_delete=CASCADE)  # Optional[UserProfile]
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+    referred_by: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)  # Optional[UserProfile]
     streams: Manager = models.ManyToManyField('Stream')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     invited_as: int = models.PositiveSmallIntegerField(default=PreregistrationUser.INVITE_AS['MEMBER'])
 
 class EmailChangeStatus(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     new_email: str = models.EmailField()
     old_email: str = models.EmailField()
     updated_at: datetime.datetime = models.DateTimeField(auto_now=True)
@@ -1342,7 +1439,9 @@ class AbstractPushDeviceToken(models.Model):
         abstract = True
 
 class PushDeviceToken(AbstractPushDeviceToken):
-    # The user who's device this is
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+
+    # The user whose device this is
     user: UserProfile = models.ForeignKey(UserProfile, db_index=True, on_delete=CASCADE)
 
     class Meta:
@@ -1355,6 +1454,7 @@ class Stream(models.Model):
     MAX_NAME_LENGTH = 60
     MAX_DESCRIPTION_LENGTH = 1024
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     name: str = models.CharField(max_length=MAX_NAME_LENGTH, db_index=True)
     realm: Realm = models.ForeignKey(Realm, db_index=True, on_delete=CASCADE)
     date_created: datetime.datetime = models.DateTimeField(default=timezone_now)
@@ -1365,7 +1465,7 @@ class Stream(models.Model):
     # Foreign key to the Recipient object for STREAM type messages to this stream.
     recipient = models.ForeignKey(Recipient, null=True, on_delete=models.SET_NULL)
 
-    invite_only: Optional[bool] = models.NullBooleanField(default=False)
+    invite_only: Optional[bool] = models.BooleanField(null=True, default=False)
     history_public_to_subscribers: bool = models.BooleanField(default=False)
 
     # Whether this stream's content should be published by the web-public archive features
@@ -1398,10 +1498,17 @@ class Stream(models.Model):
     # e-mail length of 254, and our max stream length is 30, so we
     # have plenty of room for the token.
     email_token: str = models.CharField(
-        max_length=32, default=generate_email_token_for_stream, unique=True
+        max_length=32, default=generate_email_token_for_stream, unique=True,
     )
 
-    # For old messages being automatically deleted
+    # For old messages being automatically deleted.
+    # Value NULL means "use retention policy of the realm".
+    # Value -1 means "disable retention policy for this stream unconditionally".
+    # Non-negative values have the natural meaning of "archive messages older than <value> days".
+    MESSAGE_RETENTION_SPECIAL_VALUES_MAP = {
+        'forever': -1,
+        'realm_default': None,
+    }
     message_retention_days: Optional[int] = models.IntegerField(null=True, default=None)
 
     # The very first message ID in the stream.  Used to help clients
@@ -1410,7 +1517,7 @@ class Stream(models.Model):
     first_message_id: Optional[int] = models.IntegerField(null=True, db_index=True)
 
     def __str__(self) -> str:
-        return "<Stream: %s>" % (self.name,)
+        return f"<Stream: {self.name}>"
 
     def is_public(self) -> bool:
         # All streams are private in Zephyr mirroring realms.
@@ -1433,9 +1540,7 @@ class Stream(models.Model):
     # * "deactivated" streams are filtered from the API entirely.
     # * "realm" and "recipient" are not exposed to clients via the API.
     # * "date_created" should probably be added here, as it's useful information
-    #   to subscribers and is needed to compute is_old_stream.
-    # * message_retention_days should be added here once the feature is
-    #   complete.
+    #   to subscribers.
     API_FIELDS = [
         "name",
         "id",
@@ -1446,6 +1551,7 @@ class Stream(models.Model):
         "stream_post_policy",
         "history_public_to_subscribers",
         "first_message_id",
+        "message_retention_days"
     ]
 
     @staticmethod
@@ -1467,29 +1573,28 @@ post_save.connect(flush_stream, sender=Stream)
 post_delete.connect(flush_stream, sender=Stream)
 
 class MutedTopic(models.Model):
-    user_profile = models.ForeignKey(UserProfile, on_delete=CASCADE)
-    stream = models.ForeignKey(Stream, on_delete=CASCADE)
-    recipient = models.ForeignKey(Recipient, on_delete=CASCADE)
-    topic_name = models.CharField(max_length=MAX_TOPIC_NAME_LENGTH)
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+    user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
+    stream: Stream = models.ForeignKey(Stream, on_delete=CASCADE)
+    recipient: Recipient = models.ForeignKey(Recipient, on_delete=CASCADE)
+    topic_name: str = models.CharField(max_length=MAX_TOPIC_NAME_LENGTH)
     # The default value for date_muted is a few weeks before tracking
     # of when topics were muted was first introduced.  It's designed
     # to be obviously incorrect so that users can tell it's backfilled data.
-    date_muted = models.DateTimeField(default=datetime.datetime(2020, 1, 1, 0, 0, 0, 0))
+    date_muted: datetime.datetime = models.DateTimeField(default=datetime.datetime(2020, 1, 1, 0, 0, tzinfo=datetime.timezone.utc))
 
     class Meta:
         unique_together = ('user_profile', 'stream', 'topic_name')
 
     def __str__(self) -> str:
-        return ("<MutedTopic: (%s, %s, %s, %s)>" % (self.user_profile.email,
-                                                    self.stream.name,
-                                                    self.topic_name,
-                                                    self.date_muted))
+        return (f"<MutedTopic: ({self.user_profile.email}, {self.stream.name}, {self.topic_name}, {self.date_muted})>")
 
 class Client(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     name: str = models.CharField(max_length=30, db_index=True, unique=True)
 
     def __str__(self) -> str:
-        return "<Client: %s>" % (self.name,)
+        return f"<Client: {self.name}>"
 
 get_client_cache: Dict[str, Client] = {}
 def get_client(name: str) -> Client:
@@ -1502,7 +1607,7 @@ def get_client(name: str) -> Client:
     return get_client_cache[cache_name]
 
 def get_client_cache_key(name: str) -> str:
-    return 'get_client:%s' % (make_safe_digest(name),)
+    return f'get_client:{make_safe_digest(name)}'
 
 @cache_with_key(get_client_cache_key, timeout=3600*24*7)
 def get_client_remote_cache(name: str) -> Client:
@@ -1517,7 +1622,7 @@ def get_realm_stream(stream_name: str, realm_id: int) -> Stream:
 def stream_name_in_use(stream_name: str, realm_id: int) -> bool:
     return Stream.objects.filter(
         name__iexact=stream_name.strip(),
-        realm_id=realm_id
+        realm_id=realm_id,
     ).exists()
 
 def get_active_streams(realm: Optional[Realm]) -> QuerySet:
@@ -1550,11 +1655,10 @@ def bulk_get_streams(realm: Realm, stream_names: STREAM_NAMES) -> Dict[str, Any]
         #
         # But chaining __in and __iexact doesn't work with Django's
         # ORM, so we have the following hack to construct the relevant where clause
-        upper_list = ", ".join(["UPPER(%s)"] * len(stream_names))
-        where_clause = "UPPER(zerver_stream.name::text) IN (%s)" % (upper_list,)
-        return get_active_streams(realm.id).select_related().extra(
+        where_clause = "upper(zerver_stream.name::text) IN (SELECT upper(name) FROM unnest(%s) AS name)"
+        return get_active_streams(realm).select_related().extra(
             where=[where_clause],
-            params=stream_names)
+            params=(list(stream_names),))
 
     def stream_name_to_cache_key(stream_name: str) -> str:
         return get_stream_cache_key(stream_name, realm.id)
@@ -1562,10 +1666,12 @@ def bulk_get_streams(realm: Realm, stream_names: STREAM_NAMES) -> Dict[str, Any]
     def stream_to_lower_name(stream: Stream) -> str:
         return stream.name.lower()
 
-    return generic_bulk_cached_fetch(stream_name_to_cache_key,
-                                     fetch_streams_by_name,
-                                     [stream_name.lower() for stream_name in stream_names],
-                                     id_fetcher=stream_to_lower_name)
+    return bulk_cached_fetch(
+        stream_name_to_cache_key,
+        fetch_streams_by_name,
+        [stream_name.lower() for stream_name in stream_names],
+        id_fetcher=stream_to_lower_name,
+    )
 
 def get_huddle_recipient(user_profile_ids: Set[int]) -> Recipient:
 
@@ -1580,7 +1686,7 @@ def get_huddle_user_ids(recipient: Recipient) -> List[int]:
     assert(recipient.type == Recipient.HUDDLE)
 
     return Subscription.objects.filter(
-        recipient=recipient
+        recipient=recipient,
     ).order_by('user_profile_id').values_list('user_profile_id', flat=True)
 
 def bulk_get_huddle_user_ids(recipients: List[Recipient]) -> Dict[int, List[int]]:
@@ -1593,7 +1699,7 @@ def bulk_get_huddle_user_ids(recipients: List[Recipient]) -> Dict[int, List[int]
         return {}
 
     subscriptions = Subscription.objects.filter(
-        recipient__in=recipients
+        recipient__in=recipients,
     ).order_by('user_profile_id')
 
     result_dict: Dict[int, List[int]] = {}
@@ -1639,10 +1745,10 @@ class AbstractMessage(models.Model):
 
     def __str__(self) -> str:
         display_recipient = get_display_recipient(self.recipient)
-        return "<%s: %s / %s / %s>" % (self.__class__.__name__, display_recipient,
-                                       self.subject, self.sender)
+        return f"<{self.__class__.__name__}: {display_recipient} / {self.subject} / {self.sender}>"
 
 class ArchiveTransaction(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     timestamp: datetime.datetime = models.DateTimeField(default=timezone_now, db_index=True)
     # Marks if the data archived in this transaction has been restored:
     restored: bool = models.BooleanField(default=False, db_index=True)
@@ -1661,7 +1767,7 @@ class ArchiveTransaction(models.Model):
             id=self.id,
             type="MANUAL" if self.type == self.MANUAL else "RETENTION_POLICY_BASED",
             realm=self.realm.string_id if self.realm else None,
-            timestamp=self.timestamp
+            timestamp=self.timestamp,
         )
 
 class ArchivedMessage(AbstractMessage):
@@ -1669,9 +1775,11 @@ class ArchivedMessage(AbstractMessage):
     are permanently deleted.  This is an important part of a robust
     'message retention' feature.
     """
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     archive_transaction: ArchiveTransaction = models.ForeignKey(ArchiveTransaction, on_delete=CASCADE)
 
 class Message(AbstractMessage):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
 
     def topic_name(self) -> str:
         """
@@ -1702,25 +1810,10 @@ class Message(AbstractMessage):
     @staticmethod
     def need_to_render_content(rendered_content: Optional[str],
                                rendered_content_version: Optional[int],
-                               bugdown_version: int) -> bool:
+                               markdown_version: int) -> bool:
         return (rendered_content is None or
                 rendered_content_version is None or
-                rendered_content_version < bugdown_version)
-
-    def to_log_dict(self) -> Dict[str, Any]:
-        return dict(
-            id                = self.id,
-            sender_id         = self.sender.id,
-            sender_email      = self.sender.email,
-            sender_realm_str  = self.sender.realm.string_id,
-            sender_full_name  = self.sender.full_name,
-            sender_short_name = self.sender.short_name,
-            sending_client    = self.sending_client.name,
-            type              = self.recipient.type_name(),
-            recipient         = get_display_recipient(self.recipient),
-            subject           = self.topic_name(),
-            content           = self.content,
-            timestamp         = datetime_to_timestamp(self.date_sent))
+                rendered_content_version < markdown_version)
 
     def sent_by_human(self) -> bool:
         """Used to determine whether a message was sent by a full Zulip UI
@@ -1766,13 +1859,14 @@ class AbstractSubMessage(models.Model):
     # generic in purpose.
 
     sender: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
-    msg_type = models.TextField()
-    content = models.TextField()
+    msg_type: str = models.TextField()
+    content: str = models.TextField()
 
     class Meta:
         abstract = True
 
 class SubMessage(AbstractSubMessage):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     message: Message = models.ForeignKey(Message, on_delete=CASCADE)
 
     @staticmethod
@@ -1783,6 +1877,7 @@ class SubMessage(AbstractSubMessage):
         return list(query)
 
 class ArchivedSubMessage(AbstractSubMessage):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     message: ArchivedMessage = models.ForeignKey(ArchivedMessage, on_delete=CASCADE)
 
 post_save.connect(flush_submessage, sender=SubMessage)
@@ -1826,9 +1921,11 @@ class AbstractReaction(models.Model):
 
     class Meta:
         abstract = True
-        unique_together = ("user_profile", "message", "emoji_name")
+        unique_together = (("user_profile", "message", "emoji_name"),
+                           ("user_profile", "message", "reaction_type", "emoji_code"))
 
 class Reaction(AbstractReaction):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     message: Message = models.ForeignKey(Message, on_delete=CASCADE)
 
     @staticmethod
@@ -1838,9 +1935,10 @@ class Reaction(AbstractReaction):
         return Reaction.objects.filter(message_id__in=needed_ids).values(*fields)
 
     def __str__(self) -> str:
-        return "%s / %s / %s" % (self.user_profile.email, self.message.id, self.emoji_name)
+        return f"{self.user_profile.email} / {self.message.id} / {self.emoji_name}"
 
 class ArchivedReaction(AbstractReaction):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     message: ArchivedMessage = models.ForeignKey(ArchivedMessage, on_delete=CASCADE)
 
 # Whenever a message is sent, for each user subscribed to the
@@ -1952,8 +2050,7 @@ class AbstractUserMessage(models.Model):
 
     def __str__(self) -> str:
         display_recipient = get_display_recipient(self.message.recipient)
-        return "<%s: %s / %s (%s)>" % (self.__class__.__name__, display_recipient,
-                                       self.user_profile.email, self.flags_list())
+        return f"<{self.__class__.__name__}: {display_recipient} / {self.user_profile.email} ({self.flags_list()})>"
 
 
 class UserMessage(AbstractUserMessage):
@@ -1984,9 +2081,10 @@ class AbstractAttachment(models.Model):
     realm: Optional[Realm] = models.ForeignKey(Realm, blank=True, null=True, on_delete=CASCADE)
 
     create_time: datetime.datetime = models.DateTimeField(
-        default=timezone_now, db_index=True
+        default=timezone_now, db_index=True,
     )
-    size: Optional[int] = models.IntegerField(null=True)
+    # Size of the uploaded file, in bytes
+    size: int = models.IntegerField()
 
     # Whether this attachment has been posted to a public stream, and
     # thus should be available to all non-guest users in the
@@ -1999,7 +2097,7 @@ class AbstractAttachment(models.Model):
         abstract = True
 
     def __str__(self) -> str:
-        return "<%s: %s>" % (self.__class__.__name__, self.file_name,)
+        return f"<{self.__class__.__name__}: {self.file_name}>"
 
 
 class ArchivedAttachment(AbstractAttachment):
@@ -2007,9 +2105,11 @@ class ArchivedAttachment(AbstractAttachment):
     before they are permanently deleted.  This is an important part of
     a robust 'message retention' feature.
     """
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     messages: Manager = models.ManyToManyField(ArchivedMessage)
 
 class Attachment(AbstractAttachment):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     messages: Manager = models.ManyToManyField(Message)
 
     def is_claimed(self) -> bool:
@@ -2023,11 +2123,11 @@ class Attachment(AbstractAttachment):
             'size': self.size,
             # convert to JavaScript-style UNIX timestamp so we can take
             # advantage of client timezones.
-            'create_time': time.mktime(self.create_time.timetuple()) * 1000,
+            'create_time': int(time.mktime(self.create_time.timetuple()) * 1000),
             'messages': [{
                 'id': m.id,
-                'name': time.mktime(m.date_sent.timetuple()) * 1000
-            } for m in self.messages.all()]
+                'date_sent': int(time.mktime(m.date_sent.timetuple()) * 1000),
+            } for m in self.messages.all()],
         }
 
 post_save.connect(flush_used_upload_space_cache, sender=Attachment)
@@ -2077,6 +2177,7 @@ def get_old_unclaimed_attachments(weeks_ago: int) -> Sequence[Attachment]:
     return old_attachments
 
 class Subscription(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     recipient: Recipient = models.ForeignKey(Recipient, on_delete=CASCADE)
 
@@ -2088,7 +2189,7 @@ class Subscription(models.Model):
     active: bool = models.BooleanField(default=True)
 
     # Whether this user had muted this stream.
-    is_muted: Optional[bool] = models.NullBooleanField(default=False)
+    is_muted: Optional[bool] = models.BooleanField(null=True, default=False)
 
     DEFAULT_STREAM_COLOR = "#c2c2c2"
     color: str = models.CharField(max_length=10, default=DEFAULT_STREAM_COLOR)
@@ -2097,17 +2198,17 @@ class Subscription(models.Model):
     # These fields are stream-level overrides for the user's default
     # configuration for notification, configured in UserProfile.  The
     # default, None, means we just inherit the user-level default.
-    desktop_notifications: Optional[bool] = models.NullBooleanField(default=None)
-    audible_notifications: Optional[bool] = models.NullBooleanField(default=None)
-    push_notifications: Optional[bool] = models.NullBooleanField(default=None)
-    email_notifications: Optional[bool] = models.NullBooleanField(default=None)
-    wildcard_mentions_notify: Optional[bool] = models.NullBooleanField(default=None)
+    desktop_notifications: Optional[bool] = models.BooleanField(null=True, default=None)
+    audible_notifications: Optional[bool] = models.BooleanField(null=True, default=None)
+    push_notifications: Optional[bool] = models.BooleanField(null=True, default=None)
+    email_notifications: Optional[bool] = models.BooleanField(null=True, default=None)
+    wildcard_mentions_notify: Optional[bool] = models.BooleanField(null=True, default=None)
 
     class Meta:
         unique_together = ("user_profile", "recipient")
 
     def __str__(self) -> str:
-        return "<Subscription: %s -> %s>" % (self.user_profile, self.recipient)
+        return f"<Subscription: {self.user_profile} -> {self.recipient}>"
 
     # Subscription fields included whenever a Subscription object is provided to
     # Zulip clients via the API.  A few details worth noting:
@@ -2221,6 +2322,12 @@ def get_active_user(email: str, realm: Realm) -> UserProfile:
 def get_user_profile_by_id_in_realm(uid: int, realm: Realm) -> UserProfile:
     return UserProfile.objects.select_related().get(id=uid, realm=realm)
 
+def get_active_user_profile_by_id_in_realm(uid: int, realm: Realm) -> UserProfile:
+    user_profile = get_user_profile_by_id_in_realm(uid, realm)
+    if not user_profile.is_active:
+        raise UserProfile.DoesNotExist()
+    return user_profile
+
 def get_user_including_cross_realm(email: str, realm: Optional[Realm]=None) -> UserProfile:
     if is_cross_realm_bot_email(email):
         return get_system_bot(email)
@@ -2233,7 +2340,7 @@ def get_system_bot(email: str) -> UserProfile:
 
 def get_user_by_id_in_realm_including_cross_realm(
         uid: int,
-        realm: Optional[Realm]
+        realm: Optional[Realm],
 ) -> UserProfile:
     user_profile = get_user_profile_by_id(uid)
     if user_profile.realm == realm:
@@ -2256,7 +2363,7 @@ def get_realm_user_dicts(realm_id: int) -> List[Dict[str, Any]]:
 def active_user_ids(realm_id: int) -> List[int]:
     query = UserProfile.objects.filter(
         realm_id=realm_id,
-        is_active=True
+        is_active=True,
     ).values_list('id', flat=True)
     return list(query)
 
@@ -2264,9 +2371,9 @@ def active_user_ids(realm_id: int) -> List[int]:
 def active_non_guest_user_ids(realm_id: int) -> List[int]:
     query = UserProfile.objects.filter(
         realm_id=realm_id,
-        is_active=True
+        is_active=True,
     ).exclude(
-        role=UserProfile.ROLE_GUEST
+        role=UserProfile.ROLE_GUEST,
     ).values_list('id', flat=True)
     return list(query)
 
@@ -2290,6 +2397,7 @@ def is_cross_realm_bot_email(email: str) -> bool:
 # below, to support efficiently mapping from a set of users to the
 # corresponding Huddle object.
 class Huddle(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     # TODO: We should consider whether using
     # CommaSeparatedIntegerField would be better.
     huddle_hash: str = models.CharField(max_length=40, db_index=True, unique=True)
@@ -2302,7 +2410,7 @@ def get_huddle_hash(id_list: List[int]) -> str:
     return make_safe_digest(hash_key)
 
 def huddle_hash_cache_key(huddle_hash: str) -> str:
-    return "huddle_by_hash:%s" % (huddle_hash,)
+    return f"huddle_by_hash:{huddle_hash}"
 
 def get_huddle(id_list: List[int]) -> Huddle:
     huddle_hash = get_huddle_hash(id_list)
@@ -2324,6 +2432,7 @@ def get_huddle_backend(huddle_hash: str, id_list: List[int]) -> Huddle:
         return huddle
 
 class UserActivity(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     client: Client = models.ForeignKey(Client, on_delete=CASCADE)
     query: str = models.CharField(max_length=50, db_index=True)
@@ -2337,6 +2446,7 @@ class UserActivity(models.Model):
 class UserActivityInterval(models.Model):
     MIN_INTERVAL_LENGTH = datetime.timedelta(minutes=15)
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     start: datetime.datetime = models.DateTimeField('start time', db_index=True)
     end: datetime.datetime = models.DateTimeField('end time', db_index=True)
@@ -2351,9 +2461,10 @@ class UserPresence(models.Model):
     class Meta:
         unique_together = ("user_profile", "client")
         index_together = [
-            ("realm", "timestamp")
+            ("realm", "timestamp"),
         ]
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     client: Client = models.ForeignKey(Client, on_delete=CASCADE)
@@ -2386,7 +2497,7 @@ class UserPresence(models.Model):
         elif status == UserPresence.IDLE:
             return 'idle'
         else:  # nocoverage # TODO: Add a presence test to cover this.
-            raise ValueError('Unknown status: %s' % (status,))
+            raise ValueError(f'Unknown status: {status}')
 
     @staticmethod
     def to_presence_dict(client_name: str, status: int, dt: datetime.datetime, push_enabled: bool=False,
@@ -2405,7 +2516,7 @@ class UserPresence(models.Model):
         return UserPresence.to_presence_dict(
             self.client.name,
             self.status,
-            self.timestamp
+            self.timestamp,
         )
 
     @staticmethod
@@ -2420,6 +2531,7 @@ class UserPresence(models.Model):
         return status_val
 
 class UserStatus(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.OneToOneField(UserProfile, on_delete=CASCADE)
 
     timestamp: datetime.datetime = models.DateTimeField()
@@ -2432,6 +2544,7 @@ class UserStatus(models.Model):
     status_text: str = models.CharField(max_length=255, default='')
 
 class DefaultStream(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     stream: Stream = models.ForeignKey(Stream, on_delete=CASCADE)
 
@@ -2440,6 +2553,8 @@ class DefaultStream(models.Model):
 
 class DefaultStreamGroup(models.Model):
     MAX_NAME_LENGTH = 60
+
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     name: str = models.CharField(max_length=MAX_NAME_LENGTH, db_index=True)
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     streams: Manager = models.ManyToManyField('Stream')
@@ -2472,6 +2587,7 @@ class ScheduledEmail(AbstractScheduledJob):
     # ScheduledEmails for use in clear_scheduled_emails; the
     # recipients used for actually sending messages are stored in the
     # data field of AbstractScheduledJob.
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     users: Manager = models.ManyToManyField(UserProfile)
     # Just the address part of a full "name <address>" email address
     address: Optional[str] = models.EmailField(null=True, db_index=True)
@@ -2483,14 +2599,13 @@ class ScheduledEmail(AbstractScheduledJob):
     type: int = models.PositiveSmallIntegerField()
 
     def __str__(self) -> str:
-        return "<ScheduledEmail: %s %s %s>" % (self.type,
-                                               self.address or list(self.users.all()),
-                                               self.scheduled_timestamp)
+        return f"<ScheduledEmail: {self.type} {self.address or list(self.users.all())} {self.scheduled_timestamp}>"
 
 class MissedMessageEmailAddress(models.Model):
     EXPIRY_SECONDS = 60 * 60 * 24 * 5
     ALLOWED_USES = 1
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     message: Message = models.ForeignKey(Message, on_delete=CASCADE)
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     email_token: str = models.CharField(max_length=34, unique=True, db_index=True)
@@ -2513,6 +2628,7 @@ class MissedMessageEmailAddress(models.Model):
         self.save(update_fields=["times_used"])
 
 class ScheduledMessage(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     sender: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     recipient: Recipient = models.ForeignKey(Recipient, on_delete=CASCADE)
     subject: str = models.CharField(max_length=MAX_TOPIC_NAME_LENGTH)
@@ -2532,7 +2648,7 @@ class ScheduledMessage(models.Model):
     )
 
     delivery_type: int = models.PositiveSmallIntegerField(
-        choices=DELIVERY_TYPES, default=SEND_LATER
+        choices=DELIVERY_TYPES, default=SEND_LATER,
     )
 
     def topic_name(self) -> str:
@@ -2543,9 +2659,7 @@ class ScheduledMessage(models.Model):
 
     def __str__(self) -> str:
         display_recipient = get_display_recipient(self.recipient)
-        return "<ScheduledMessage: %s %s %s %s>" % (display_recipient,
-                                                    self.subject, self.sender,
-                                                    self.scheduled_timestamp)
+        return f"<ScheduledMessage: {display_recipient} {self.subject} {self.sender} {self.scheduled_timestamp}>"
 
 EMAIL_TYPES = {
     'followup_day1': ScheduledEmail.WELCOME,
@@ -2594,6 +2708,7 @@ class AbstractRealmAuditLog(models.Model):
     REALM_PLAN_TYPE_CHANGED = 204
     REALM_LOGO_CHANGED = 205
     REALM_EXPORTED = 206
+    REALM_PROPERTY_CHANGED = 207
 
     SUBSCRIPTION_CREATED = 301
     SUBSCRIPTION_ACTIVATED = 302
@@ -2606,10 +2721,14 @@ class AbstractRealmAuditLog(models.Model):
 
     CUSTOMER_CREATED = 501
     CUSTOMER_PLAN_CREATED = 502
+    CUSTOMER_SWITCHED_FROM_MONTHLY_TO_ANNUAL_PLAN = 503
+
+    STREAM_CREATED = 601
+    STREAM_DEACTIVATED = 602
 
     event_type: int = models.PositiveSmallIntegerField()
 
-    # event_types synced from on-prem installations to zulipchat.com when
+    # event_types synced from on-prem installations to Zulip Cloud when
     # billing for mobile push notifications is enabled.  Every billing
     # event_type should have ROLE_COUNT populated in extra_data.
     SYNCED_BILLING_EVENTS = [
@@ -2639,29 +2758,28 @@ class RealmAuditLog(AbstractRealmAuditLog):
       acting_user is that administrator and both modified_user and
       modified_stream will be None.
     """
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     acting_user: Optional[UserProfile] = models.ForeignKey(
-        UserProfile, null=True, related_name="+", on_delete=CASCADE
+        UserProfile, null=True, related_name="+", on_delete=CASCADE,
     )
     modified_user: Optional[UserProfile] = models.ForeignKey(
-        UserProfile, null=True, related_name="+", on_delete=CASCADE
+        UserProfile, null=True, related_name="+", on_delete=CASCADE,
     )
     modified_stream: Optional[Stream] = models.ForeignKey(
-        Stream, null=True, on_delete=CASCADE
+        Stream, null=True, on_delete=CASCADE,
     )
     event_last_message_id: Optional[int] = models.IntegerField(null=True)
 
     def __str__(self) -> str:
         if self.modified_user is not None:
-            return "<RealmAuditLog: %s %s %s %s>" % (
-                self.modified_user, self.event_type, self.event_time, self.id)
+            return f"<RealmAuditLog: {self.modified_user} {self.event_type} {self.event_time} {self.id}>"
         if self.modified_stream is not None:
-            return "<RealmAuditLog: %s %s %s %s>" % (
-                self.modified_stream, self.event_type, self.event_time, self.id)
-        return "<RealmAuditLog: %s %s %s %s>" % (
-            self.realm, self.event_type, self.event_time, self.id)
+            return f"<RealmAuditLog: {self.modified_stream} {self.event_type} {self.event_time} {self.id}>"
+        return f"<RealmAuditLog: {self.realm} {self.event_type} {self.event_time} {self.id}>"
 
 class UserHotspot(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     hotspot: str = models.CharField(max_length=30)
     timestamp: datetime.datetime = models.DateTimeField(default=timezone_now)
@@ -2669,11 +2787,9 @@ class UserHotspot(models.Model):
     class Meta:
         unique_together = ("user", "hotspot")
 
-def check_valid_user_ids(realm_id: int, user_ids: List[int],
-                         allow_deactivated: bool=False) -> Optional[str]:
-    error = check_list(check_int)("User IDs", user_ids)
-    if error:
-        return error
+def check_valid_user_ids(realm_id: int, val: object,
+                         allow_deactivated: bool=False) -> List[int]:
+    user_ids = check_list(check_int)("User IDs", val)
     realm = Realm.objects.get(id=realm_id)
     for user_id in user_ids:
         # TODO: Structurally, we should be doing a bulk fetch query to
@@ -2683,16 +2799,16 @@ def check_valid_user_ids(realm_id: int, user_ids: List[int],
         try:
             user_profile = get_user_profile_by_id_in_realm(user_id, realm)
         except UserProfile.DoesNotExist:
-            return _('Invalid user ID: %d') % (user_id)
+            raise ValidationError(_('Invalid user ID: %d') % (user_id))
 
         if not allow_deactivated:
             if not user_profile.is_active:
-                return _('User with ID %d is deactivated') % (user_id)
+                raise ValidationError(_('User with ID %d is deactivated') % (user_id))
 
         if (user_profile.is_bot):
-            return _('User with ID %d is a bot') % (user_id)
+            raise ValidationError(_('User with ID %d is a bot') % (user_id))
 
-    return None
+    return user_ids
 
 class CustomProfileField(models.Model):
     """Defines a form field for the per-realm custom profile fields feature.
@@ -2703,6 +2819,7 @@ class CustomProfileField(models.Model):
     HINT_MAX_LENGTH = 80
     NAME_MAX_LENGTH = 40
 
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     realm: Realm = models.ForeignKey(Realm, on_delete=CASCADE)
     name: str = models.CharField(max_length=NAME_MAX_LENGTH)
     hint: Optional[str] = models.CharField(max_length=HINT_MAX_LENGTH, default='', null=True)
@@ -2723,7 +2840,7 @@ class CustomProfileField(models.Model):
         (CHOICE, str(_('List of options')), validate_choice_field, str, "CHOICE"),
     ]
     USER_FIELD_TYPE_DATA: List[UserFieldElement] = [
-        (USER, str(_('Person picker')), check_valid_user_ids, eval, "USER"),
+        (USER, str(_('Person picker')), check_valid_user_ids, ast.literal_eval, "USER"),
     ]
 
     CHOICE_FIELD_VALIDATORS: Dict[int, ExtendedValidator] = {
@@ -2744,7 +2861,7 @@ class CustomProfileField(models.Model):
 
     ALL_FIELD_TYPES = [*FIELD_TYPE_DATA, *CHOICE_FIELD_TYPE_DATA, *USER_FIELD_TYPE_DATA]
 
-    FIELD_VALIDATORS: Dict[int, Validator] = {item[0]: item[2] for item in FIELD_TYPE_DATA}
+    FIELD_VALIDATORS: Dict[int, Validator[Union[int, str, List[int]]]] = {item[0]: item[2] for item in FIELD_TYPE_DATA}
     FIELD_CONVERTERS: Dict[int, Callable[[Any], Any]] = {item[0]: item[3] for item in ALL_FIELD_TYPES}
     FIELD_TYPE_CHOICES: List[Tuple[int, str]] = [(item[0], item[1]) for item in ALL_FIELD_TYPES]
     FIELD_TYPE_CHOICES_DICT: Dict[str, Dict[str, Union[str, int]]] = {
@@ -2752,7 +2869,7 @@ class CustomProfileField(models.Model):
     }
 
     field_type: int = models.PositiveSmallIntegerField(
-        choices=FIELD_TYPE_CHOICES, default=SHORT_TEXT
+        choices=FIELD_TYPE_CHOICES, default=SHORT_TEXT,
     )
 
     # A JSON blob of any additional data needed to define the field beyond
@@ -2769,7 +2886,7 @@ class CustomProfileField(models.Model):
     class Meta:
         unique_together = ('realm', 'name')
 
-    def as_dict(self) -> ProfileDataElement:
+    def as_dict(self) -> ProfileDataElementBase:
         return {
             'id': self.id,
             'name': self.name,
@@ -2785,12 +2902,13 @@ class CustomProfileField(models.Model):
         return False
 
     def __str__(self) -> str:
-        return "<CustomProfileField: %s %s %s %d>" % (self.realm, self.name, self.field_type, self.order)
+        return f"<CustomProfileField: {self.realm} {self.name} {self.field_type} {self.order}>"
 
 def custom_profile_fields_for_realm(realm_id: int) -> List[CustomProfileField]:
     return CustomProfileField.objects.filter(realm=realm_id).order_by('order')
 
 class CustomProfileFieldValue(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     field: CustomProfileField = models.ForeignKey(CustomProfileField, on_delete=CASCADE)
     value: str = models.TextField()
@@ -2800,7 +2918,7 @@ class CustomProfileFieldValue(models.Model):
         unique_together = ('user_profile', 'field')
 
     def __str__(self) -> str:
-        return "<CustomProfileFieldValue: %s %s %s>" % (self.user_profile, self.field, self.value)
+        return f"<CustomProfileFieldValue: {self.user_profile} {self.field} {self.value}>"
 
 # Interfaces for services
 # They provide additional functionality like parsing message to obtain query url, data to be sent to url,
@@ -2823,6 +2941,7 @@ SLACK_INTERFACE = 'SlackOutgoingWebhookService'
 #   embedded bots with the same name will run the same code
 # - base_url and token are currently unused
 class Service(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     name: str = models.CharField(max_length=UserProfile.MAX_NAME_LENGTH)
     # Bot user corresponding to the Service.  The bot_type of this user
     # deterines the type of service.  If non-bot services are added later,
@@ -2852,14 +2971,15 @@ class Service(models.Model):
         return self._interfaces[self.interface]
 
 
-def get_bot_services(user_profile_id: str) -> List[Service]:
+def get_bot_services(user_profile_id: int) -> List[Service]:
     return list(Service.objects.filter(user_profile__id=user_profile_id))
 
-def get_service_profile(user_profile_id: str, service_name: str) -> Service:
+def get_service_profile(user_profile_id: int, service_name: str) -> Service:
     return Service.objects.get(user_profile__id=user_profile_id, name=service_name)
 
 
 class BotStorageData(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     bot_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     key: str = models.TextField(db_index=True)
     value: str = models.TextField()
@@ -2868,6 +2988,7 @@ class BotStorageData(models.Model):
         unique_together = ("bot_profile", "key")
 
 class BotConfigData(models.Model):
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
     bot_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
     key: str = models.TextField(db_index=True)
     value: str = models.TextField()
@@ -2886,3 +3007,28 @@ def get_fake_email_domain() -> str:
         raise InvalidFakeEmailDomain(settings.FAKE_EMAIL_DOMAIN + ' is not a valid domain.')
 
     return settings.FAKE_EMAIL_DOMAIN
+
+class AlertWord(models.Model):
+    # Realm isn't necessary, but it's a nice denormalization.  Users
+    # never move to another realm, so it's static, and having Realm
+    # here optimizes the main query on this table, which is fetching
+    # all the alert words in a realm.
+    id: int = models.AutoField(auto_created=True, primary_key=True, verbose_name='ID')
+    realm: Realm = models.ForeignKey(Realm, db_index=True, on_delete=CASCADE)
+    user_profile: UserProfile = models.ForeignKey(UserProfile, on_delete=CASCADE)
+    # Case-insensitive name for the alert word.
+    word: str = models.TextField()
+
+    class Meta:
+        unique_together = ("user_profile", "word")
+
+def flush_realm_alert_words(realm: Realm) -> None:
+    cache_delete(realm_alert_words_cache_key(realm))
+    cache_delete(realm_alert_words_automaton_cache_key(realm))
+
+def flush_alert_word(sender: Any, **kwargs: Any) -> None:
+    realm = kwargs['instance'].realm
+    flush_realm_alert_words(realm)
+
+post_save.connect(flush_alert_word, sender=AlertWord)
+post_delete.connect(flush_alert_word, sender=AlertWord)

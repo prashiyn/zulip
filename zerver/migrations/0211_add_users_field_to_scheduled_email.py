@@ -2,7 +2,7 @@
 
 from django.conf import settings
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
             name='users',
             field=models.ManyToManyField(to=settings.AUTH_USER_MODEL),
         ),
-        migrations.RunPython(set_users_for_existing_scheduledemails, reverse_code=migrations.RunPython.noop),
+        migrations.RunPython(set_users_for_existing_scheduledemails, reverse_code=migrations.RunPython.noop, elidable=True),
         migrations.RemoveField(
             model_name='scheduledemail',
             name='user',

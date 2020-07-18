@@ -1,22 +1,29 @@
-from typing import Any, Dict, List, Set, Tuple, Union
-
-from collections import defaultdict
 import datetime
 import logging
-import pytz
+from collections import defaultdict
+from typing import Any, Dict, List, Set, Tuple, Union
 
 from django.conf import settings
 from django.utils.timezone import now as timezone_now
 
 from confirmation.models import one_click_unsubscribe_link
-from zerver.lib.email_notifications import build_message_list
-from zerver.lib.send_email import send_future_email, FromAddress
-from zerver.lib.url_encoding import encode_stream
-from zerver.models import UserProfile, Recipient, Subscription, UserActivity, \
-    get_active_streams, get_user_profile_by_id, Realm, Message, RealmAuditLog
 from zerver.context_processors import common_context
-from zerver.lib.queue import queue_json_publish
+from zerver.lib.email_notifications import build_message_list
 from zerver.lib.logging_util import log_to_file
+from zerver.lib.queue import queue_json_publish
+from zerver.lib.send_email import FromAddress, send_future_email
+from zerver.lib.url_encoding import encode_stream
+from zerver.models import (
+    Message,
+    Realm,
+    RealmAuditLog,
+    Recipient,
+    Subscription,
+    UserActivity,
+    UserProfile,
+    get_active_streams,
+    get_user_profile_by_id,
+)
 
 logger = logging.getLogger(__name__)
 log_to_file(logger, settings.DIGEST_LOG_PATH)
@@ -70,8 +77,10 @@ def enqueue_emails(cutoff: datetime.datetime) -> None:
         for user_profile in user_profiles:
             if inactive_since(user_profile, cutoff):
                 queue_digest_recipient(user_profile, cutoff)
-                logger.info("User %s is inactive, queuing for potential digest" % (
-                    user_profile.id,))
+                logger.info(
+                    "User %s is inactive, queuing for potential digest",
+                    user_profile.id,
+                )
 
 def gather_hot_conversations(user_profile: UserProfile, messages: List[Message]) -> List[Dict[str, Any]]:
     # Gather stream conversations of 2 types:
@@ -145,14 +154,14 @@ def gather_new_streams(user_profile: UserProfile,
     else:
         new_streams = []
 
-    base_url = "%s/#narrow/stream/" % (user_profile.realm.uri,)
+    base_url = f"{user_profile.realm.uri}/#narrow/stream/"
 
     streams_html = []
     streams_plain = []
 
     for stream in new_streams:
         narrow_url = base_url + encode_stream(stream.id, stream.name)
-        stream_link = "<a href='%s'>%s</a>" % (narrow_url, stream.name)
+        stream_link = f"<a href='{narrow_url}'>{stream.name}</a>"
         streams_html.append(stream_link)
         streams_plain.append(stream.name)
 
@@ -166,13 +175,13 @@ def handle_digest_email(user_profile_id: int, cutoff: float,
     user_profile = get_user_profile_by_id(user_profile_id)
 
     # Convert from epoch seconds to a datetime object.
-    cutoff_date = datetime.datetime.fromtimestamp(int(cutoff), tz=pytz.utc)
+    cutoff_date = datetime.datetime.fromtimestamp(int(cutoff), tz=datetime.timezone.utc)
 
     context = common_context(user_profile)
 
     # Start building email template data.
     context.update({
-        'unsubscribe_link': one_click_unsubscribe_link(user_profile, "digest")
+        'unsubscribe_link': one_click_unsubscribe_link(user_profile, "digest"),
     })
 
     home_view_streams = Subscription.objects.filter(
@@ -209,7 +218,7 @@ def handle_digest_email(user_profile_id: int, cutoff: float,
 
     # We don't want to send emails containing almost no information.
     if enough_traffic(context["hot_conversations"], new_streams_count):
-        logger.info("Sending digest email for user %s" % (user_profile.id,))
+        logger.info("Sending digest email for user %s", user_profile.id)
         # Send now, as a ScheduledEmail
         send_future_email('zerver/emails/digest', user_profile.realm, to_user_ids=[user_profile.id],
                           from_name="Zulip Digest", from_address=FromAddress.no_reply_placeholder,
@@ -224,7 +233,7 @@ def exclude_subscription_modified_streams(user_profile: UserProfile,
     events = [
         RealmAuditLog.SUBSCRIPTION_CREATED,
         RealmAuditLog.SUBSCRIPTION_ACTIVATED,
-        RealmAuditLog.SUBSCRIPTION_DEACTIVATED
+        RealmAuditLog.SUBSCRIPTION_DEACTIVATED,
     ]
 
     # Streams where the user's subscription was changed

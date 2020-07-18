@@ -1,7 +1,7 @@
 import sys
 
 from django.db import migrations
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 from django.db.models import F
 
@@ -36,7 +36,7 @@ def set_initial_value_of_is_private_flag(
             percent = round((processed / total) * 100, 2)
         else:
             percent = 100.00
-        print("Processed %s/%s %s%%" % (processed, total, percent))
+        print(f"Processed {processed}/{total} {percent}%")
         sys.stdout.flush()
 
 class Migration(migrations.Migration):
@@ -48,5 +48,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(set_initial_value_of_is_private_flag,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
     ]

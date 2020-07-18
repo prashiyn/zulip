@@ -1,5 +1,3 @@
-const render_group_pms = require('../templates/group_pms.hbs');
-
 /*
     Helpers for detecting user activity and managing user idle states
 */
@@ -26,35 +24,18 @@ exports.client_is_active = document.hasFocus && document.hasFocus();
 // server-initiated reload as user activity.
 exports.new_user_input = true;
 
-const huddle_timestamps = new Map();
-
 function update_pm_count_in_dom(count_span, value_span, count) {
-    const li = count_span.parents('li');
+    const li = count_span.parents("li");
 
     if (count === 0) {
         count_span.hide();
         li.removeClass("user-with-count");
-        value_span.text('');
+        value_span.text("");
         return;
     }
 
     count_span.show();
     li.addClass("user-with-count");
-    value_span.text(count);
-}
-
-function update_group_count_in_dom(count_span, value_span, count) {
-    const li = count_span.parent();
-
-    if (count === 0) {
-        count_span.hide();
-        li.removeClass("group-with-count");
-        value_span.text('');
-        return;
-    }
-
-    count_span.show();
-    li.addClass("group-with-count");
     value_span.text(count);
 }
 
@@ -64,20 +45,10 @@ function get_pm_list_item(user_id) {
     });
 }
 
-function get_group_list_item(user_ids_string) {
-    return $("li.group-pms-sidebar-entry[data-user-ids='" + user_ids_string + "']");
-}
-
 function set_pm_count(user_ids_string, count) {
-    const count_span = get_pm_list_item(user_ids_string).find('.count');
-    const value_span = count_span.find('.value');
+    const count_span = get_pm_list_item(user_ids_string).find(".count");
+    const value_span = count_span.find(".value");
     update_pm_count_in_dom(count_span, value_span, count);
-}
-
-function set_group_count(user_ids_string, count) {
-    const count_span = get_group_list_item(user_ids_string).find('.count');
-    const value_span = count_span.find('.value');
-    update_group_count_in_dom(count_span, value_span, count);
 }
 
 exports.update_dom_with_unread_counts = function (counts) {
@@ -86,81 +57,11 @@ exports.update_dom_with_unread_counts = function (counts) {
 
     for (const [user_ids_string, count] of counts.pm_count) {
         // TODO: just use user_ids_string in our markup
-        const is_pm = !user_ids_string.includes(',');
+        const is_pm = !user_ids_string.includes(",");
         if (is_pm) {
             set_pm_count(user_ids_string, count);
-        } else {
-            set_group_count(user_ids_string, count);
         }
     }
-};
-
-exports.process_loaded_messages = function (messages) {
-    let need_resize = false;
-
-    for (const message of messages) {
-        const huddle_string = people.huddle_string(message);
-
-        if (huddle_string) {
-            const old_timestamp = huddle_timestamps.get(huddle_string);
-
-            if (!old_timestamp || old_timestamp < message.timestamp) {
-                huddle_timestamps.set(huddle_string, message.timestamp);
-                need_resize = true;
-            }
-        }
-    }
-
-    exports.update_huddles();
-
-    if (need_resize) {
-        resize.resize_page_components(); // big hammer
-    }
-};
-
-exports.get_huddles = function () {
-    let huddles = Array.from(huddle_timestamps.keys());
-    huddles = _.sortBy(huddles, function (huddle) {
-        return huddle_timestamps.get(huddle);
-    });
-    return huddles.reverse();
-};
-
-function huddle_split(huddle) {
-    return huddle.split(',').map(s => parseInt(s, 10));
-}
-
-exports.full_huddle_name = function (huddle) {
-    const user_ids = huddle_split(huddle);
-
-    const names = user_ids.map(user_id => {
-        const person = people.get_by_user_id(user_id);
-        return person.full_name;
-    });
-
-    return names.join(', ');
-};
-
-exports.short_huddle_name = function (huddle) {
-    const user_ids = huddle_split(huddle);
-
-    const num_to_show = 3;
-    let names = user_ids.map(user_id => {
-        const person = people.get_by_user_id(user_id);
-        return person.full_name;
-    });
-
-    names = _.sortBy(names, function (name) { return name.toLowerCase(); });
-    names = names.slice(0, num_to_show);
-    const others = user_ids.length - num_to_show;
-
-    if (others === 1) {
-        names.push("+ 1 other");
-    } else if (others >= 2) {
-        names.push("+ " + others + " others");
-    }
-
-    return names.join(', ');
 };
 
 function mark_client_idle() {
@@ -202,13 +103,11 @@ exports.build_user_sidebar = function () {
 
     const user_ids = buddy_data.get_filtered_and_sorted_user_ids(filter_text);
 
-    const finish = blueslip.start_timing('buddy_list.populate');
+    const finish = blueslip.start_timing("buddy_list.populate");
     buddy_list.populate({
         keys: user_ids,
     });
     finish();
-
-    resize.resize_page_components();
 
     return user_ids; // for testing
 };
@@ -223,45 +122,6 @@ function do_update_users_for_search() {
 
 const update_users_for_search = _.throttle(do_update_users_for_search, 50);
 
-function show_huddles() {
-    $('#group-pm-list').addClass("show");
-}
-
-function hide_huddles() {
-    $('#group-pm-list').removeClass("show");
-}
-
-exports.update_huddles = function () {
-    if (page_params.realm_presence_disabled) {
-        return;
-    }
-
-    const huddles = exports.get_huddles().slice(0, 10);
-
-    if (huddles.length === 0) {
-        hide_huddles();
-        return;
-    }
-
-    const group_pms = huddles.map(huddle => ({
-        user_ids_string: huddle,
-        name: exports.full_huddle_name(huddle),
-        href: hash_util.huddle_with_uri(huddle),
-        fraction_present: buddy_data.huddle_fraction_present(huddle),
-        short_name: exports.short_huddle_name(huddle),
-    }));
-
-    const html = render_group_pms({group_pms: group_pms});
-    ui.get_content_element($('#group-pms')).html(html);
-
-    for (const user_ids_string of huddles) {
-        const count = unread.num_unread_for_person(user_ids_string);
-        set_group_count(user_ids_string, count);
-    }
-
-    show_huddles();
-};
-
 exports.compute_active_status = function () {
     // The overall algorithm intent for the `status` field is to send
     // `ACTIVE` (aka green circle) if we know the user is at their
@@ -272,11 +132,13 @@ exports.compute_active_status = function () {
     // * For the electron desktop app, we also know whether the
     //   user is active or idle elsewhere on their system.
     //
-    // The check for `idle_on_system === undefined` is feature
+    // The check for `get_idle_on_system === undefined` is feature
     // detection; older desktop app releases never set that property.
-    if (window.electron_bridge !== undefined
-            && window.electron_bridge.idle_on_system !== undefined) {
-        if (window.electron_bridge.idle_on_system) {
+    if (
+        window.electron_bridge !== undefined &&
+        window.electron_bridge.get_idle_on_system !== undefined
+    ) {
+        if (window.electron_bridge.get_idle_on_system()) {
             return exports.IDLE;
         }
         return exports.ACTIVE;
@@ -308,7 +170,7 @@ function send_presence_to_server(want_redraw) {
     server_events.check_for_unsuspend();
 
     channel.post({
-        url: '/json/users/me/presence',
+        url: "/json/users/me/presence",
         data: {
             status: exports.compute_active_status(),
             ping_only: !want_redraw,
@@ -319,9 +181,9 @@ function send_presence_to_server(want_redraw) {
         success: function (data) {
             // Update Zephyr mirror activity warning
             if (data.zephyr_mirror_active === false) {
-                $('#zephyr-mirror-error').addClass("show");
+                $("#zephyr-mirror-error").addClass("show");
             } else {
-                $('#zephyr-mirror-error').removeClass("show");
+                $("#zephyr-mirror-error").removeClass("show");
             }
 
             exports.new_user_input = false;
@@ -342,20 +204,21 @@ function mark_client_active() {
 }
 
 exports.initialize = function () {
-    $("html").on("mousemove", function () {
+    $("html").on("mousemove", () => {
         exports.new_user_input = true;
     });
 
     $(window).focus(mark_client_active);
-    $(window).idle({idle: DEFAULT_IDLE_TIMEOUT_MS,
-                    onIdle: mark_client_idle,
-                    onActive: mark_client_active,
-                    keepTracking: true});
+    $(window).idle({
+        idle: DEFAULT_IDLE_TIMEOUT_MS,
+        onIdle: mark_client_idle,
+        onActive: mark_client_active,
+        keepTracking: true,
+    });
 
     exports.set_cursor_and_filter();
 
     exports.build_user_sidebar();
-    exports.update_huddles();
 
     buddy_list.start_scroll_handler();
 
@@ -373,7 +236,6 @@ exports.initialize = function () {
 exports.update_presence_info = function (user_id, info, server_time) {
     presence.update_info_from_event(user_id, info, server_time);
     exports.redraw_user(user_id);
-    exports.update_huddles();
     pm_list.update_private_messages();
 };
 
@@ -392,7 +254,6 @@ exports.on_revoke_away = function (user_id) {
 exports.redraw = function () {
     exports.build_user_sidebar();
     exports.user_cursor.redraw();
-    exports.update_huddles();
     pm_list.update_private_messages();
 };
 
@@ -411,7 +272,7 @@ exports.narrow_for_user_id = function (opts) {
     const person = people.get_by_user_id(opts.user_id);
     const email = person.email;
 
-    narrow.by('pm-with', email, {trigger: 'sidebar'});
+    narrow.by("pm-with", email, {trigger: "sidebar"});
     exports.user_filter.clear_and_hide_search();
 };
 
@@ -428,7 +289,7 @@ function keydown_enter_key() {
 exports.set_cursor_and_filter = function () {
     exports.user_cursor = list_cursor({
         list: buddy_list,
-        highlight_class: 'highlighted_user',
+        highlight_class: "highlighted_user",
     });
 
     exports.user_filter = user_search({
@@ -439,7 +300,7 @@ exports.set_cursor_and_filter = function () {
 
     const $input = exports.user_filter.input_field();
 
-    $input.on('blur', exports.user_cursor.clear);
+    $input.on("blur", exports.user_cursor.clear);
 
     keydown_util.handle({
         elem: $input,
@@ -478,8 +339,8 @@ exports.get_filter_text = function () {
         // situations where get called before everything is
         // fully initialized.  The empty string is a fine
         // default here.
-        blueslip.warn('get_filter_text() is called before initialization');
-        return '';
+        blueslip.warn("get_filter_text() is called before initialization");
+        return "";
     }
 
     return exports.user_filter.text();

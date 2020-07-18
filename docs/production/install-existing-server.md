@@ -18,7 +18,8 @@ existing services if (when) your server goes down.
 
 These instructions are only for experts.  If you're not an experienced
 Linux sysadmin, you will have a much better experience if you get a
-dedicated VM to install Zulip on instead (or [use zulipchat.com](https://zulipchat.com).
+dedicated VM to install Zulip on instead (or [use
+zulip.com](https://zulip.com).
 
 ### Nginx
 
@@ -61,9 +62,16 @@ $ sudo service puppet-agent stop
 $ sudo service puppet stop
 ```
 
-### Postgres
+### PostgreSQL
 
-If you have an existing postgres database, note that Zulip will use
+Zulip expects to install PostgreSQL 12, and find that listening on
+port 5432; any other version of PostgreSQL that is detected at install
+time will cause the install to abort.  If you already have PostgreSQL
+installed, you can pass `--postgres-version=` to the installer to have
+it use that version.  It will replace the package with the latest from
+the PostgreSQL apt repository, but existing data will be retained.
+
+If you have an existing PostgreSQL database, note that Zulip will use
 the default `main` as its database name; make sure you're not using
 that.
 

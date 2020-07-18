@@ -27,6 +27,21 @@ exports.demote_inactive_streams_values = {
     },
 };
 
+exports.color_scheme_values = {
+    automatic: {
+        code: 1,
+        description: i18n.t("Automatic"),
+    },
+    night: {
+        code: 2,
+        description: i18n.t("Night mode"),
+    },
+    day: {
+        code: 3,
+        description: i18n.t("Day mode"),
+    },
+};
+
 exports.twenty_four_hour_time_values = {
     twenty_four_hour_clock: {
         value: true,
@@ -42,7 +57,6 @@ exports.get_all_display_settings = () => ({
     settings: {
         user_display_settings: [
             "dense_mode",
-            "night_mode",
             "high_contrast_mode",
             "left_side_userlist",
             "starred_message_counts",
@@ -122,50 +136,101 @@ exports.private_message_policy_values = {
 };
 
 const time_limit_dropdown_values = new Map([
-    ["any_time", {
-        text: i18n.t("Any time"),
-        seconds: 0,
-    }],
-    ["never", {
-        text: i18n.t("Never"),
-    }],
-    ["upto_two_min", {
-        text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("2 minutes")}),
-        seconds: 2 * 60,
-    }],
-    ["upto_ten_min", {
-        text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("10 minutes")}),
-        seconds: 10 * 60,
-    }],
-    ["upto_one_hour", {
-        text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 hour")}),
-        seconds: 60 * 60,
-    }],
-    ["upto_one_day", {
-        text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 day")}),
-        seconds: 24 * 60 * 60,
-    }],
-    ["upto_one_week", {
-        text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 week")}),
-        seconds: 7 * 24 * 60 * 60,
-    }],
-    ["custom_limit", {
-        text: i18n.t("Up to N minutes after posting"),
-    }],
+    [
+        "any_time",
+        {
+            text: i18n.t("Any time"),
+            seconds: 0,
+        },
+    ],
+    [
+        "never",
+        {
+            text: i18n.t("Never"),
+        },
+    ],
+    [
+        "upto_two_min",
+        {
+            text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("2 minutes")}),
+            seconds: 2 * 60,
+        },
+    ],
+    [
+        "upto_ten_min",
+        {
+            text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("10 minutes")}),
+            seconds: 10 * 60,
+        },
+    ],
+    [
+        "upto_one_hour",
+        {
+            text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 hour")}),
+            seconds: 60 * 60,
+        },
+    ],
+    [
+        "upto_one_day",
+        {
+            text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 day")}),
+            seconds: 24 * 60 * 60,
+        },
+    ],
+    [
+        "upto_one_week",
+        {
+            text: i18n.t("Up to __time_limit__ after posting", {time_limit: i18n.t("1 week")}),
+            seconds: 7 * 24 * 60 * 60,
+        },
+    ],
+    [
+        "custom_limit",
+        {
+            text: i18n.t("Up to N minutes after posting"),
+        },
+    ],
 ]);
 exports.msg_edit_limit_dropdown_values = time_limit_dropdown_values;
 exports.msg_delete_limit_dropdown_values = time_limit_dropdown_values;
 
+exports.retain_message_forever = -1;
+
+exports.user_role_values = {
+    guest: {
+        code: 600,
+        description: i18n.t("Guest"),
+    },
+    member: {
+        code: 400,
+        description: i18n.t("Member"),
+    },
+    admin: {
+        code: 200,
+        description: i18n.t("Administrator"),
+    },
+    owner: {
+        code: 100,
+        description: i18n.t("Owner"),
+    },
+};
+
+const user_role_array = Object.values(exports.user_role_values);
+exports.user_role_map = new Map(user_role_array.map((role) => [role.code, role.description]));
 
 // NOTIFICATIONS
 
 exports.general_notifications_table_labels = {
     realm: [
         /* An array of notification settings of any category like
-        * `stream_notification_settings` which makes a single row of
-        * "Notification triggers" table should follow this order
-        */
-        "visual", "audio", "mobile", "email", "all_mentions",
+         * `stream_notification_settings` which makes a single row of
+         * "Notification triggers" table should follow this order
+         */
+        "visual",
+        "audio",
+        "mobile",
+        "email",
+        "all_mentions",
     ],
     stream: {
         is_muted: i18n.t("Mute stream"),
@@ -201,13 +266,9 @@ const pm_mention_notification_settings = [
     "enable_offline_email_notifications",
 ];
 
-const desktop_notification_settings = [
-    "pm_content_in_desktop_notifications",
-];
+const desktop_notification_settings = ["pm_content_in_desktop_notifications"];
 
-const mobile_notification_settings = [
-    "enable_online_push_notifications",
-];
+const mobile_notification_settings = ["enable_online_push_notifications"];
 
 const email_notification_settings = [
     "enable_digest_emails",
@@ -216,16 +277,19 @@ const email_notification_settings = [
     "realm_name_in_notifications",
 ];
 
+const presence_notification_settings = ["presence_enabled"];
+
 const other_notification_settings = desktop_notification_settings.concat(
     ["desktop_icon_count_display"],
     mobile_notification_settings,
     email_notification_settings,
-    ["notification_sound"]
+    presence_notification_settings,
+    ["notification_sound"],
 );
 
 exports.all_notification_settings = other_notification_settings.concat(
     pm_mention_notification_settings,
-    exports.stream_notification_settings
+    exports.stream_notification_settings,
 );
 
 exports.all_notifications = () => ({
@@ -233,18 +297,21 @@ exports.all_notifications = () => ({
         {
             label: i18n.t("Streams"),
             notification_settings: settings_notifications.get_notifications_table_row_data(
-                exports.stream_notification_settings),
+                exports.stream_notification_settings,
+            ),
         },
         {
             label: i18n.t("PMs, mentions, and alerts"),
             notification_settings: settings_notifications.get_notifications_table_row_data(
-                pm_mention_notification_settings),
+                pm_mention_notification_settings,
+            ),
         },
     ],
     settings: {
         desktop_notification_settings: desktop_notification_settings,
         mobile_notification_settings: mobile_notification_settings,
         email_notification_settings: email_notification_settings,
+        presence_notification_settings: presence_notification_settings,
     },
     show_push_notifications_tooltip: {
         push_notifications: !page_params.realm_push_notifications_enabled,

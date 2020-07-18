@@ -21,7 +21,7 @@ export function print_elapsed_time(name, fun) {
     const t0 = new Date().getTime();
     const out = fun();
     const t1 = new Date().getTime();
-    console.log(name + ': ' + (t1 - t0) + ' ms');
+    console.log(name + ": " + (t1 - t0) + " ms");
     return out;
 }
 
@@ -30,11 +30,9 @@ export function check_duplicate_ids() {
     const collisions = [];
     let total_collisions = 0;
 
-    Array.prototype.slice.call(document.querySelectorAll("*")).forEach(function (o) {
+    Array.prototype.slice.call(document.querySelectorAll("*")).forEach((o) => {
         if (o.id && ids.has(o.id)) {
-            const el = collisions.find(function (c) {
-                return c.id === o.id;
-            });
+            const el = collisions.find((c) => c.id === o.id);
 
             ids.add(o.id);
             total_collisions += 1;
@@ -44,8 +42,17 @@ export function check_duplicate_ids() {
                 collisions.push({
                     id: o.id,
                     count: 1,
-                    node: "<" + tag + " className='" + o.className + "' id='" + o.id + "'>" +
-                          "</" + tag + ">",
+                    node:
+                        "<" +
+                        tag +
+                        " className='" +
+                        o.className +
+                        "' id='" +
+                        o.id +
+                        "'>" +
+                        "</" +
+                        tag +
+                        ">",
                 });
             } else {
                 el.count += 1;
@@ -98,7 +105,7 @@ export function IterationProfiler() {
 
 IterationProfiler.prototype = {
     iteration_start: function () {
-        this.section('_iteration_overhead');
+        this.section("_iteration_overhead");
     },
 
     iteration_stop: function () {
@@ -107,7 +114,7 @@ IterationProfiler.prototype = {
         if (diff > 1) {
             this.sections.set(
                 "_rest_of_iteration",
-                (this.sections.get("_rest_of_iteration") || 0) + diff
+                (this.sections.get("_rest_of_iteration") || 0) + diff,
             );
         }
         this.last_time = now;
@@ -120,7 +127,7 @@ IterationProfiler.prototype = {
     },
 
     done: function () {
-        this.section('_iteration_overhead');
+        this.section("_iteration_overhead");
 
         for (const [prop, cost] of this.sections) {
             console.log(prop, cost);

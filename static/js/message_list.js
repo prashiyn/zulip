@@ -1,4 +1,4 @@
-const autosize = require('autosize');
+const autosize = require("autosize");
 
 exports.narrowed = undefined;
 exports.set_narrowed = function (value) {
@@ -24,7 +24,6 @@ exports.MessageList = function (opts) {
     const collapse_messages = opts.collapse_messages;
     const table_name = opts.table_name;
     this.view = new MessageListView(this, table_name, collapse_messages);
-    this.fetch_status = FetchStatus();
     this.table_name = table_name;
     this.narrowed = this.table_name === "zfilt";
     this.num_appends = 0;
@@ -69,8 +68,7 @@ exports.MessageList.prototype = {
             narrow.hide_empty_narrow_message();
         }
 
-        if (self === exports.narrowed && !self.empty() &&
-            self.selected_id() === -1) {
+        if (self === exports.narrowed && !self.empty() && self.selected_id() === -1) {
             // And also select the newly arrived message.
             self.select_id(self.selected_id(), {then_scroll: true, use_closest: true});
         }
@@ -122,8 +120,8 @@ exports.MessageList.prototype = {
         return this.data.can_mark_messages_read();
     },
 
-    clear: function  MessageList_clear(opts) {
-        opts = { clear_selected_id: true, ...opts };
+    clear: function MessageList_clear(opts) {
+        opts = {clear_selected_id: true, ...opts};
 
         this.data.clear();
         this.view.clear_rendering_state(true);
@@ -177,8 +175,7 @@ exports.MessageList.prototype = {
                 id: id,
                 closest_id: closest_id,
             };
-            blueslip.error("Selected message id not in MessageList",
-                           error_data);
+            blueslip.error("Selected message id not in MessageList", error_data);
         }
 
         if (closest_id === -1 && !opts.empty_ok) {
@@ -200,7 +197,7 @@ exports.MessageList.prototype = {
             this.view.maybe_rerender();
         }
 
-        $(document).trigger($.Event('message_selected.zulip', opts));
+        $(document).trigger($.Event("message_selected.zulip", opts));
     },
 
     reselect_selected_id: function MessageList_select_closest_id() {
@@ -228,18 +225,15 @@ exports.MessageList.prototype = {
     },
 
     subscribed_bookend_content: function (stream_name) {
-        return i18n.t("You subscribed to stream __stream__",
-                      {stream: stream_name});
+        return i18n.t("You subscribed to stream __stream__", {stream: stream_name});
     },
 
     unsubscribed_bookend_content: function (stream_name) {
-        return i18n.t("You unsubscribed from stream __stream__",
-                      {stream: stream_name});
+        return i18n.t("You unsubscribed from stream __stream__", {stream: stream_name});
     },
 
     not_subscribed_bookend_content: function (stream_name) {
-        return i18n.t("You are not subscribed to stream __stream__",
-                      {stream: stream_name});
+        return i18n.t("You are not subscribed to stream __stream__", {stream: stream_name});
     },
 
     // Maintains a trailing bookend element explaining any changes in
@@ -291,7 +285,7 @@ exports.MessageList.prototype = {
     },
 
     append_to_view: function (messages, opts) {
-        opts = { messages_are_new: false, ...opts };
+        opts = {messages_are_new: false, ...opts};
 
         this.num_appends += 1;
         const render_info = this.view.append(messages, opts.messages_are_new);
@@ -304,6 +298,9 @@ exports.MessageList.prototype = {
     },
 
     show_edit_message: function MessageList_show_edit_message(row, edit_obj) {
+        if (row.find(".message_edit_form form").length !== 0) {
+            return;
+        }
         row.find(".message_edit_form").append(edit_obj.form);
         row.find(".message_content, .status-message, .message_controls").hide();
         row.find(".message_edit").css("display", "block");
@@ -319,28 +316,28 @@ exports.MessageList.prototype = {
 
     show_edit_topic_on_recipient_row: function (recipient_row, form) {
         recipient_row.find(".topic_edit_form").append(form);
-        recipient_row.find('.on_hover_topic_edit').hide();
-        recipient_row.find('.edit_content_button').hide();
+        recipient_row.find(".on_hover_topic_edit").hide();
+        recipient_row.find(".edit_content_button").hide();
         recipient_row.find(".stream_topic").hide();
         recipient_row.find(".topic_edit").show();
     },
 
     hide_edit_topic_on_recipient_row: function (recipient_row) {
         recipient_row.find(".stream_topic").show();
-        recipient_row.find('.on_hover_topic_edit').show();
-        recipient_row.find('.edit_content_button').show();
+        recipient_row.find(".on_hover_topic_edit").show();
+        recipient_row.find(".edit_content_button").show();
         recipient_row.find(".topic_edit_form").empty();
         recipient_row.find(".topic_edit").hide();
     },
 
     show_message_as_read: function (message, options) {
         const row = this.get_row(message.id);
-        if (options.from === 'pointer' || options.from === "server") {
-            row.find('.unread_marker').addClass('fast_fade');
+        if (options.from === "pointer" || options.from === "server") {
+            row.find(".unread_marker").addClass("fast_fade");
         } else {
-            row.find('.unread_marker').addClass('slow_fade');
+            row.find(".unread_marker").addClass("slow_fade");
         }
-        row.removeClass('unread');
+        row.removeClass("unread");
     },
 
     rerender: function MessageList_rerender() {
@@ -443,7 +440,7 @@ exports.all = new exports.MessageList({
 // doing something.  Be careful, though, if you try to capture
 // mousemove, then you will have to contend with the autoscroll
 // itself generating mousemove events.
-$(document).on('message_selected.zulip wheel', function () {
+$(document).on("message_selected.zulip wheel", () => {
     message_viewport.stop_auto_scrolling();
 });
 

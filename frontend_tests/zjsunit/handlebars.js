@@ -1,13 +1,13 @@
 const fs = require("fs");
 const Handlebars = require("handlebars/dist/cjs/handlebars.js");
 const path = require("path");
-const { SourceMapConsumer, SourceNode } = require("source-map");
+const {SourceMapConsumer, SourceNode} = require("source-map");
 
 const templates_path = path.resolve(__dirname, "../../static/templates");
 
 exports.make_handlebars = () => Handlebars.create();
 
-exports.stub_templates = stub => {
+exports.stub_templates = (stub) => {
     window.template_stub = stub;
 };
 
@@ -30,7 +30,7 @@ hb.JavaScriptCompiler = ZJavaScriptCompiler;
 require.extensions[".hbs"] = (module, filename) => {
     const code = fs.readFileSync(filename, "utf-8");
     const name = path.relative(templates_path, filename).slice(0, -".hbs".length);
-    const pc = hb.precompile(code, { preventIndent: true, srcName: filename });
+    const pc = hb.precompile(code, {preventIndent: true, srcName: filename});
     const node = new SourceNode();
     node.add([
         "let hb, template;\n",
@@ -53,6 +53,6 @@ require.extensions[".hbs"] = (module, filename) => {
         out.code +
             "\n//# sourceMappingURL=data:application/json;charset=utf-8;base64," +
             Buffer.from(out.map.toString()).toString("base64"),
-        filename
+        filename,
     );
 };

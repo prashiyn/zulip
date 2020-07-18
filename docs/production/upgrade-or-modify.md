@@ -7,6 +7,7 @@ This page explains how to upgrade, patch, or modify Zulip, including:
 - [Troubleshooting and rollback](#troubleshooting-and-rollback)
 - [Preserving local changes to configuration files](#preserving-local-changes-to-configuration-files)
 - [Upgrading the operating system](#upgrading-the-operating-system)
+- [Upgrading PostgreSQL](#upgrading-postgresql)
 - [Modifying Zulip](#modifying-zulip)
 - [Applying changes from master](#applying-changes-from-master)
 
@@ -17,6 +18,9 @@ docker-zulip][docker-upgrade], have [patched Zulip](#modifying-zulip),
 or have [modified Zulip-managed configuration
 files](#preserving-local-changes-to-configuration-files).  To upgrade
 to a new Zulip release:
+
+1. Read the [upgrade notes](../overview/changelog.html#upgrade-notes)
+   for all releases newer than what is currently installed.
 
 1. Download the appropriate release tarball from
     <https://www.zulip.org/dist/releases/> You can download the latest
@@ -83,7 +87,7 @@ containing the changes planned for the next minor release
 were a published release.
 
 The `master` branch contains changes planned for the next major
-release (E.g. 2.2.0); see our documentation on [running
+release (E.g. 3.0); see our documentation on [running
 master](#upgrading-to-master) before upgrading to it.
 
 By default, this uses the main upstream Zulip server repository, but
@@ -129,7 +133,7 @@ help](https://chat.zulip.org/#narrow/stream/31-production-help) in the
 server](../contributing/chat-zulip-org.md) for best-effort help.
 Please include the relevant error output from the above logs in a
 [markdown code
-block](https://zulipchat.com/help/format-your-message-using-markdown#code)
+block](https://zulip.com/help/format-your-message-using-markdown#code)
 in any reports.
 
 ### Rolling back to a prior version
@@ -186,7 +190,7 @@ custom configuration.
 ## Upgrading the operating system
 
 When you upgrade the operating system on which Zulip is installed
-(E.g. Ubuntu 16.04 Xenial to Ubuntu 18.04 Bionic), you need to take
+(E.g. Ubuntu 18.04 Bionic to Ubuntu 20.04 Focal), you need to take
 some additional steps to update your Zulip installation, documented
 below.
 
@@ -194,10 +198,10 @@ The steps are largely the same for the various OS upgrades aside from
 the versions of postgres, so you should be able to adapt these
 instructions for other supported platforms.
 
-### Upgrading from Ubuntu 16.04 Xenial to 18.04 Bionic
+### Upgrading from Ubuntu 18.04 Bionic to 20.04 Focal
 
-1. Upgrade your server to the latest Zulip `2.1.x` release, since
-   newer releases don't support Ubuntu 16.04 Xenial.
+1. Upgrade your server to the latest Zulip release (at least 3.0,
+   which adds support for Ubuntu Focal).
 
 2. As the Zulip user, stop the Zulip server and run the following
    to back up the system:
@@ -214,14 +218,50 @@ instructions for other supported platforms.
 
     ```
     sudo -i # Or otherwise get a root shell
-    do-release-upgrade
+    do-release-upgrade -d
     ```
+
+    The `-d` option to `do-release-upgrade` is required because Ubuntu
+    20.04 is new; it will stop being necessary once the first point
+    release update of Ubuntu 20.04 LTS is released.
 
     When `do-release-upgrade` asks you how to upgrade configuration
     files for services that Zulip manages like `redis`, `postgres`,
     `nginx`, and `memcached`, the best choice is `N` to keep the
     currently installed version.  But it's not important; the next
     step will re-install Zulip's configuration in any case.
+
+4. As root, upgrade the database to the latest version of PostgreSQL:
+
+    ```
+    /home/zulip/deployments/current/scripts/setup/upgrade-postgres
+    ```
+
+5. Finally, we need to reinstall the current version of Zulip, which
+   among other things will recompile Zulip's Python module
+   dependencies for your new version of Python and rewrite Zulip's
+   full-text search indexes to work with the upgraded dictionary
+   packages:
+
+    ```
+    rm -rf /srv/zulip-venv-cache/*
+    /home/zulip/deployments/current/scripts/lib/upgrade-zulip-stage-2 \
+        /home/zulip/deployments/current/ --ignore-static-assets --audit-fts-indexes
+    ```
+
+That last command will finish by restarting your Zulip server; you
+should now be able to navigate to its URL and confirm everything is
+working correctly.
+
+### Upgrading from Ubuntu 16.04 Xenial to 18.04 Bionic
+
+1. Upgrade your server to the latest Zulip `2.1.x` release.  You can
+   only upgrade to Zulip 3.0 and newer after completing this process,
+   since newer releases don't support Ubuntu 16.04 Xenial.
+
+2. Same as for Bionic to Focal.
+
+3. Same as for Bionic to Focal.
 
 4. As root, upgrade the database installation and OS configuration to
    match the new OS version:
@@ -238,31 +278,21 @@ instructions for other supported platforms.
     systemctl restart memcached
     ```
 
-5. At this point, you are now running the version of postgres that
-   comes with the new Ubuntu version.  Finally, we need to reinstall
-   the current version of Zulip, which among other things will
-   recompile Zulip's Python module dependencies for your new version
-   of Python:
-
-    ```
-    rm -rf /srv/zulip-venv-cache/*
-    /home/zulip/deployments/current/scripts/lib/upgrade-zulip-stage-2 \
-        /home/zulip/deployments/current/ --ignore-static-assets
-    ```
+5. Same as for Bionic to Focal.
 
 That last command will finish by restarting your Zulip server; you
 should now be able to navigate to its URL and confirm everything is
 working correctly.
 
-
 ### Upgrading from Ubuntu 14.04 Trusty to 16.04 Xenial
 
-1. Upgrade your server to the latest Zulip `2.0.x` release, since newer
-   releases don't support Ubuntu 14.04 Trusty.
+1. Upgrade your server to the latest Zulip `2.0.x` release.  You can
+   only upgrade to Zulip `2.1.x` and newer after completing this
+   process, since newer releases don't support Ubuntu 14.04 Trusty.
 
-2. Same as for Xenial to Bionic.
+2. Same as for Bionic to Focal.
 
-3. Same as for Xenial to Bionic.
+3. Same as for Bionic to Focal.
 
 4. As root, upgrade the database installation and OS configuration to
 match the new OS version:
@@ -279,14 +309,19 @@ match the new OS version:
     service memcached restart
     ```
 
-5. Same as for Xenial to Bionic.
+5. Same as for Bionic to Focal.
+
+That last command will finish by restarting your Zulip server; you
+should now be able to navigate to its URL and confirm everything is
+working correctly.
 
 ### Upgrading from Debian Stretch to Debian Buster
 
-1. Upgrade your server to the latest Zulip `2.1.x` release, since newer
-   releases don't support Debian Stretch.
+1. Upgrade your server to the latest Zulip `2.1.x` release.  You can
+   only upgrade to Zulip 3.0 and newer after completing this process,
+   since newer releases don't support Ubuntu Debian Stretch.
 
-2. Same as for Xenial to Bionic, above.
+2. Same as for Bionic to Focal.
 
 3. Follow [Debian's instructions to upgrade the OS][debian-upgrade-os].
 
@@ -313,7 +348,42 @@ match the new OS version:
     service memcached restart
     ```
 
-5. Same as for Xenial to Bionic.
+5. Same as for Bionic to Focal.
+
+That last command will finish by restarting your Zulip server; you
+should now be able to navigate to its URL and confirm everything is
+working correctly.
+
+## Upgrading PostgreSQL
+
+Starting with Zulip 3.0, we use the latest available version of
+PostgreSQL at installation time (currently version 12).  Upgrades to
+the version of PostgreSQL are no longer linked to upgrades of the
+distribution; that is, you may opt to upgrade to PostgreSQL 12 while
+running Ubuntu 18.04 Bionic.
+
+To upgrade the version of PostgreSQL on the Zulip server:
+
+1. Upgrade your server to the latest Zulip release (at least 3.0).
+
+2. Stop the server and take a backup:
+
+    ```
+    sudo -i # Or otherwise get a root shell
+    supervisorctl stop all
+    /home/zulip/deployments/current/manage.py backup --output=/home/zulip/postgresql-upgrade.backup.tar.gz
+    ```
+
+3. As root, run the database upgrade tool:
+
+    ```
+    /home/zulip/deployments/current/scripts/setup/upgrade-postgres
+    ```
+
+`upgrade-postgres` will have finished by restarting your Zulip server;
+you should now be able to navigate to its URL and confirm everything
+is working correctly.
+
 
 ## Modifying Zulip
 
@@ -327,7 +397,7 @@ that fact:
 
 * Ideally, you'd reproduce the issue in an unmodified version (e.g. on
 [chat.zulip.org](../contributing/chat-zulip-org.md) or
-[zulipchat.com](https://zulipchat.com)).
+[zulip.com](https://zulip.com)).
 * Where that is difficult or you think it's very unlikely your changes
 are related to the issue, just mention your changes in the issue report.
 
@@ -403,11 +473,16 @@ across future Zulip releases.
 Eventually, you'll want to upgrade to a new Zulip release.  If your
 changes were integrated into that Zulip release or are otherwise no
 longer needed, you can just [upgrade as
-usual](#upgrading-to-a-release).  Otherwise, you'll need to update
-your branch by rebasing your changes (starting from a
-[clone][fork-clone] of the [zulip/zulip][] repository).  The example
-below assumes you have a branch off of 2.0.4 and want to upgrade to
-2.1.0.
+usual](#upgrading-to-a-release).  If you [upgraded to
+master](#upgrading-to-master); review that section again; new
+maintenance releases are likely "older" than your current installation
+and you might need to upgrade to the master again rather than to the
+new maintenance release.
+
+Otherwise, you'll need to update your branch by rebasing your changes
+(starting from a [clone][fork-clone] of the [zulip/zulip][]
+repository).  The example below assumes you have a branch off of 2.0.4
+and want to upgrade to 2.1.0.
 
 ```
 cd zulip
@@ -478,14 +553,20 @@ released.
 
 ### Upgrading to master
 
-It's unsafe to backport arbitrary patches from master to an older
-version.  Common issues include:
+Many Zulip servers (including chat.zulip.org and zulip.com) upgrade to
+master on a regular basis to get the latest features.  Before doing
+so, it's important to understand how to happily run a server based on
+master.
+
+For background, it's backporting arbitrary patches from master to an
+older version requires some care.  Common issues include:
 
 * Changes containing database migrations (new files under
   `*/migrations/`), which includes most new features.  We
   don't support applying database migrations out of order.
 * Changes that are stacked on top of other changes to the same system.
-* Essentially any patch with hundreds of lines of changes.
+* Essentially any patch with hundreds of lines of changes will have
+  merge conflicts and require extra work to apply.
 
 While it's possible to backport these sorts of changes, you're
 unlikely to succeed without help from the core team via a support
@@ -495,15 +576,21 @@ If you need an unreleased feature, the best path is usually to
 upgrade to Zulip master using [upgrade-zulip-from-git][].  Before
 upgrading to master, make sure you understand:
 
+* In Zulip's version numbering scheme, `master` will always be "newer"
+  than the latest maintenance release (E.g. `3.1` or `2.1.6`) and
+  "older" than the next major release (E.g. `3.0` or `4.0`).
 * The `master` branch is under very active development; dozens of new
-  changes are integrated into it on most days.  Master can have
-  thousands of changes not present in the latest release (all of which
-  will be included in our next release).  There are probably some
-  bugs.
-* We deploy master to chat.zulip.org and zulipchat.com on a regular
+  changes are integrated into it on most days.  The `master` branch
+  can have thousands of changes not present in the latest release (all
+  of which will be included in our next major release).  On average
+  `master` usually has fewer total bugs than the latest release
+  (because we fix hundreds of bugs in every major release) but it
+  might have some bugs that are more severe than we would consider
+  acceptable for a release.
+* We deploy `master` to chat.zulip.org and zulip.com on a regular
   basis (often daily), so it's very important to the project that it
   be stable.  Most regressions will be minor UX issues or be fixed
-  quickly, because we need them to be fixed.
+  quickly, because we need them to be fixed for Zulip Cloud.
 * The development community is very interested in helping debug issues
   that arise when upgrading from the latest release to master, since
   they provide us an opportunity to fix that category of issue before
@@ -511,13 +598,22 @@ upgrading to master, make sure you understand:
   debug other custom changes).  That said, we cannot make any
   guarantees about how quickly we'll resolve an issue to folks without
   a formal support contract.
-* We do not support downgrading from master to earlier versions, so if downtime
-  for your Zulip server is unacceptable, make sure you have a current
-  backup in case the upgrade fails.
+* We do not support downgrading from `master` to earlier versions, so
+  if downtime for your Zulip server is unacceptable, make sure you
+  have a current
+  [backup](../production/export-and-import.html#backups) in case the
+  upgrade fails.
 * Our changelog contains [draft release
   notes](../overview/changelog.md) available listing major changes
   since the last release.  The **Upgrade notes** section will always
   be current, even if some new features aren't documented.
+* Whenever we push a security or maintenance release, the changes in
+  that release will always be merged to master; so you can get the
+  security fixes by upgrading to master.
+* You can always upgrade from master to the next major release when it
+  comes out, using either [upgrade-zulip-from-git][] or the release
+  tarball.  So there's no risk of upgrading to `master` resulting in
+  a system that's not upgradeable back to a normal release.
 
 ## Contributing patches
 

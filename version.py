@@ -1,6 +1,6 @@
 import os
 
-ZULIP_VERSION = "2.2.dev+git"
+ZULIP_VERSION = "4.0-dev+git"
 # Add information on number of commits and commit hash to version, if available
 zulip_git_version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'zulip-git-version')
 if os.path.exists(zulip_git_version_file):
@@ -9,17 +9,17 @@ if os.path.exists(zulip_git_version_file):
         if version:
             ZULIP_VERSION = version
 
-LATEST_MAJOR_VERSION = "2.1"
-LATEST_RELEASE_VERSION = "2.1.4"
-LATEST_RELEASE_ANNOUNCEMENT = "https://blog.zulip.org/2019/12/13/zulip-2-1-released/"
-LATEST_DESKTOP_VERSION = "5.0.0"
+LATEST_MAJOR_VERSION = "3.0"
+LATEST_RELEASE_VERSION = "3.0"
+LATEST_RELEASE_ANNOUNCEMENT = "https://blog.zulip.org/2020/07/16/zulip-3-0-released/"
+LATEST_DESKTOP_VERSION = "5.3.0"
 
 # Versions of the desktop app below DESKTOP_MINIMUM_VERSION will be
 # prevented from connecting to the Zulip server.  Versions above
 # DESKTOP_MINIMUM_VERSION but below DESKTOP_WARNING_VERSION will have
 # a banner at the top of the page asking the user to upgrade.
 DESKTOP_MINIMUM_VERSION = "5.0.0"
-DESKTOP_WARNING_VERSION = "5.0.0"
+DESKTOP_WARNING_VERSION = "5.2.0"
 
 # Bump the API_FEATURE_LEVEL whenever an API change is made
 # that clients might want to condition on.  If we forget at
@@ -27,9 +27,9 @@ DESKTOP_WARNING_VERSION = "5.0.0"
 # as we notice; clients using API_FEATURE_LEVEL will just not
 # use the new feature/API until the bump.
 #
-# Changes should be accompanied by documentation explaining what the new
-# level means in templates/zerver/api/server-settings.md.
-API_FEATURE_LEVEL = 1
+# Changes should be accompanied by documentation explaining what the
+# new level means in templates/zerver/api/changelog.md.
+API_FEATURE_LEVEL = 27
 
 # Bump the minor PROVISION_VERSION to indicate that folks should provision
 # only when going from an old version of the code to a newer version. Bump
@@ -44,4 +44,4 @@ API_FEATURE_LEVEL = 1
 #   historical commits sharing the same major version, in which case a
 #   minor version bump suffices.
 
-PROVISION_VERSION = '81.2'
+PROVISION_VERSION = '89.5'

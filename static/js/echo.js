@@ -4,10 +4,15 @@ const util = require("./util");
 const waiting_for_id = new Map();
 let waiting_for_ack = new Map();
 
+function failed_message_success(message_id) {
+    message_store.get(message_id).failed_request = false;
+    ui.show_failed_message_success(message_id);
+}
+
 function resend_message(message, row) {
     message.content = message.raw_content;
-    const retry_spinner = row.find('.refresh-failed-message');
-    retry_spinner.toggleClass('rotating', true);
+    const retry_spinner = row.find(".refresh-failed-message");
+    retry_spinner.toggleClass("rotating", true);
 
     // Always re-set queue_id if we've gotten a new one
     // since the time when the message object was initially created
@@ -19,19 +24,18 @@ function resend_message(message, row) {
         const message_id = data.id;
         const locally_echoed = true;
 
-        retry_spinner.toggleClass('rotating', false);
+        retry_spinner.toggleClass("rotating", false);
 
         compose.send_message_success(local_id, message_id, locally_echoed);
 
         // Resend succeeded, so mark as no longer failed
-        message_store.get(message_id).failed_request = false;
-        ui.show_failed_message_success(message_id);
+        failed_message_success(message_id);
     }
 
     function on_error(response) {
         exports.message_send_error(message.id, response);
-        setTimeout(function () {
-            retry_spinner.toggleClass('rotating', false);
+        setTimeout(() => {
+            retry_spinner.toggleClass("rotating", false);
         }, 300);
         blueslip.log("Manual resend of message failed");
     }
@@ -41,7 +45,7 @@ function resend_message(message, row) {
 }
 
 exports.build_display_recipient = function (message) {
-    if (message.type === 'stream') {
+    if (message.type === "stream") {
         return message.stream;
     }
 
@@ -52,7 +56,7 @@ exports.build_display_recipient = function (message) {
     const emails = util.extract_pm_recipients(message.private_message_recipient);
 
     let sender_in_display_recipients = false;
-    const display_recipient = emails.map(email => {
+    const display_recipient = emails.map((email) => {
         email = email.trim();
         const person = people.get_by_email(email);
         if (person === undefined) {
@@ -107,7 +111,7 @@ exports.insert_local_message = function (message_request, local_id_float) {
     // Shallow clone of message request object that is turned into something suitable
     // for zulip.js:add_message
     // Keep this in sync with changes to compose.create_message_object
-    const message = { ...message_request };
+    const message = {...message_request};
 
     // Locally delivered messages cannot be unread (since we sent them), nor
     // can they alert the user.
@@ -118,7 +122,7 @@ exports.insert_local_message = function (message_request, local_id_float) {
     // NOTE: This will parse synchronously. We're not using the async pipeline
     markdown.apply_markdown(message);
 
-    message.content_type = 'text/html';
+    message.content_type = "text/html";
     message.sender_email = people.my_current_email();
     message.sender_full_name = people.my_full_name();
     message.avatar_url = page_params.avatar_url;
@@ -131,22 +135,21 @@ exports.insert_local_message = function (message_request, local_id_float) {
     waiting_for_id.set(message.local_id, message);
     waiting_for_ack.set(message.local_id, message);
 
-    message.display_recipient = echo.build_display_recipient(message);
+    message.display_recipient = exports.build_display_recipient(message);
     local_message.insert_message(message);
     return message;
 };
 
 exports.is_slash_command = function (content) {
-    return !content.startsWith('/me') && content.startsWith('/');
+    return !content.startsWith("/me") && content.startsWith("/");
 };
-
 
 exports.try_deliver_locally = function (message_request) {
     if (markdown.contains_backend_only_syntax(message_request.content)) {
         return;
     }
 
-    if (narrow_state.active() && !narrow_state.filter().can_apply_locally()) {
+    if (narrow_state.active() && !narrow_state.filter().can_apply_locally(true)) {
         return;
     }
 
@@ -154,7 +157,7 @@ exports.try_deliver_locally = function (message_request) {
         return;
     }
 
-    if (!current_msg_list.fetch_status.has_found_newest()) {
+    if (!current_msg_list.data.fetch_status.has_found_newest()) {
         // If the current message list doesn't yet have the latest
         // messages before the one we just sent, local echo would make
         // it appear as though there were no messages between what we
@@ -190,14 +193,21 @@ exports.edit_locally = function (message, request) {
     const raw_content = request.raw_content;
     const message_content_edited = raw_content !== undefined && message.raw_content !== raw_content;
 
-    if (request.new_topic !== undefined) {
+    if (request.new_topic !== undefined || request.new_stream_id !== undefined) {
+        const new_stream_id = request.new_stream_id;
         const new_topic = request.new_topic;
-        stream_topic_history.remove_message({
+        stream_topic_history.remove_messages({
             stream_id: message.stream_id,
             topic_name: message.topic,
+            num_messages: 1,
         });
 
-        message.topic = new_topic;
+        if (new_stream_id !== undefined) {
+            message.stream_id = new_stream_id;
+        }
+        if (new_topic !== undefined) {
+            message.topic = new_topic;
+        }
 
         stream_topic_history.add_message({
             stream_id: message.stream_id,
@@ -266,6 +276,7 @@ exports.reify_message_id = function (local_id, server_id) {
 
     message_store.reify_message_id(opts);
     notifications.reify_message_id(opts);
+    recent_topics.reify_message_id_if_available(opts);
 };
 
 exports.process_from_server = function (messages) {
@@ -286,6 +297,10 @@ exports.process_from_server = function (messages) {
         }
 
         exports.reify_message_id(local_id, message.id);
+
+        if (message_store.get(message.id).failed_request) {
+            failed_message_success(message.id);
+        }
 
         if (client_message.content !== message.content) {
             client_message.content = message.content;
@@ -358,15 +373,18 @@ exports.initialize = function () {
             // otherwise send would not have failed
             const message = waiting_for_ack.get(local_id);
             if (message === undefined) {
-                blueslip.warn("Got resend or retry on failure request but did not find message in ack list " + local_id);
+                blueslip.warn(
+                    "Got resend or retry on failure request but did not find message in ack list " +
+                        local_id,
+                );
                 return;
             }
             callback(message, row);
         });
     }
 
-    on_failed_action('remove', abort_message);
-    on_failed_action('refresh', resend_message);
+    on_failed_action("remove", abort_message);
+    on_failed_action("refresh", resend_message);
 };
 
 window.echo = exports;

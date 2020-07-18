@@ -1,8 +1,38 @@
 class zulip_ops::postgres_appdb {
-  include zulip_ops::postgres_common
+  include zulip_ops::base
   include zulip::postgres_appdb_tuned
+  include zulip::postgres_backups
 
-  file { "/etc/postgresql/${zulip::base::postgres_version}/main/pg_hba.conf":
+  $common_packages = ['xfsprogs']
+  package { $common_packages: ensure => 'installed' }
+
+  file { '/etc/sysctl.d/40-postgresql.conf':
+    ensure => file,
+    owner  => 'root',
+    group  => 'root',
+    mode   => '0644',
+    source => 'puppet:///modules/zulip_ops/postgresql/40-postgresql.conf',
+  }
+  exec { 'sysctl_p':
+    command     => '/sbin/sysctl -p /etc/sysctl.d/40-postgresql.conf',
+    subscribe   => File['/etc/sysctl.d/40-postgresql.conf'],
+    refreshonly => true,
+  }
+
+  file { '/root/setup_disks.sh':
+    ensure => file,
+    owner  => 'root',
+    group  => 'root',
+    mode   => '0744',
+    source => 'puppet:///modules/zulip_ops/postgresql/setup_disks.sh',
+  }
+  exec { 'setup_disks':
+    command => '/root/setup_disks.sh',
+    require => Package["postgresql-${zulip::base::postgres_version}", 'xfsprogs'],
+    unless  => 'test $(readlink /var/lib/postgresql) = "/srv/postgresql/" -a -d /srv/postgresql',
+  }
+
+  file { "${zulip::postgres_appdb_base::postgres_confdir}/pg_hba.conf":
     ensure  => file,
     require => Package["postgresql-${zulip::base::postgres_version}"],
     owner   => 'postgres',
@@ -10,14 +40,4 @@ class zulip_ops::postgres_appdb {
     mode    => '0640',
     source  => 'puppet:///modules/zulip_ops/postgresql/pg_hba.conf',
   }
-
-  file { "/usr/share/postgresql/${zulip::base::postgres_version}/zulip_nagios_setup.sql":
-    ensure  => file,
-    require => Package["postgresql-${zulip::base::postgres_version}"],
-    owner   => 'postgres',
-    group   => 'postgres',
-    mode    => '0640',
-    source  => 'puppet:///modules/zulip_ops/postgresql/zulip_nagios_setup.sql',
-  }
-
 }

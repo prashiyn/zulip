@@ -13,18 +13,30 @@ const clear_handlers = {
     topic_name: "#topic_name",
     URL: "#URL",
     results_notice: "#results_notice",
-    bot_name: function () { $('#bot_name').children()[0].selected = true; },
-    integration_name: function () { $('#integration_name').children()[0].selected = true; },
-    fixture_name: function () { $('#fixture_name').empty(); },
-    fixture_body: function () { $("#fixture_body")[0].value = ""; },
-    custom_http_headers: function () { $("#custom_http_headers")[0].value = "{}"; },
-    results: function () { $("#idp-results")[0].value = ""; },
+    bot_name: function () {
+        $("#bot_name").children()[0].selected = true;
+    },
+    integration_name: function () {
+        $("#integration_name").children()[0].selected = true;
+    },
+    fixture_name: function () {
+        $("#fixture_name").empty();
+    },
+    fixture_body: function () {
+        $("#fixture_body")[0].value = "";
+    },
+    custom_http_headers: function () {
+        $("#custom_http_headers")[0].value = "{}";
+    },
+    results: function () {
+        $("#idp-results")[0].value = "";
+    },
 };
 
 function clear_elements(elements) {
     // Supports strings (a selector to clear) or calling a function
     // (for more complex logic).
-    elements.forEach(function (element_name) {
+    elements.forEach((element_name) => {
         const handler = clear_handlers[element_name];
         if (typeof handler === "string") {
             const element_object = $(handler)[0];
@@ -88,12 +100,12 @@ function set_results(response) {
     const responses = response.responses;
 
     let data = "Results:\n\n";
-    responses.forEach(function (response) {
+    responses.forEach((response) => {
         if (response.fixture_name !== undefined) {
             data += "Fixture:            " + response.fixture_name;
-            data += "\nStatus Code:    "  + response.status_code;
+            data += "\nStatus Code:    " + response.status_code;
         } else {
-            data += "Status Code:    "  + response.status_code;
+            data += "Status Code:    " + response.status_code;
         }
         data += "\nResponse:       " + response.message + "\n\n";
     });
@@ -128,7 +140,7 @@ function load_fixture_options(integration_name) {
     const fixtures_options_dropdown = $("#fixture_name")[0];
     const fixtures_names = Object.keys(loaded_fixtures.get(integration_name)).sort();
 
-    fixtures_names.forEach(function (fixture_name) {
+    fixtures_names.forEach((fixture_name) => {
         const new_dropdown_option = document.createElement("option");
         new_dropdown_option.value = fixture_name;
         new_dropdown_option.innerHTML = fixture_name;
@@ -189,7 +201,13 @@ function get_fixtures(integration_name) {
     /* Request fixtures from the backend for any integrations that we
     don't already have fixtures cached in loaded_fixtures). */
     if (integration_name === "") {
-        clear_elements(["custom_http_headers", "fixture_body", "fixture_name", "URL", "results_notice"]);
+        clear_elements([
+            "custom_http_headers",
+            "fixture_body",
+            "fixture_name",
+            "URL",
+            "results_notice",
+        ]);
         return;
     }
 
@@ -253,7 +271,9 @@ function send_webhook_fixture_message() {
     channel.post({
         url: "/devtools/integrations/check_send_webhook_fixture_message",
         data: {url: url, body: body, custom_headers: custom_headers, is_json: is_json},
-        beforeSend: function (xhr) {xhr.setRequestHeader('X-CSRFToken', csrftoken);},
+        beforeSend: function (xhr) {
+            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+        },
         success: function (response) {
             // If the previous fixture body was sent successfully,
             // then we should change the success message up a bit to
@@ -286,8 +306,12 @@ function send_all_fixture_messages() {
     channel.post({
         url: "/devtools/integrations/send_all_webhook_fixture_messages",
         data: {url: url, integration_name: integration},
-        beforeSend: function (xhr) {xhr.setRequestHeader('X-CSRFToken', csrftoken);},
-        success: function (response) {set_results(response);},
+        beforeSend: function (xhr) {
+            xhr.setRequestHeader("X-CSRFToken", csrftoken);
+        },
+        success: function (response) {
+            set_results(response);
+        },
         error: handle_unsuccessful_response,
     });
 
@@ -295,10 +319,19 @@ function send_all_fixture_messages() {
 }
 
 // Initialization
-$(function () {
-    clear_elements(["stream_name", "topic_name", "URL", "bot_name", "integration_name",
-                    "fixture_name", "custom_http_headers", "fixture_body", "results_notice",
-                    "results"]);
+$(() => {
+    clear_elements([
+        "stream_name",
+        "topic_name",
+        "URL",
+        "bot_name",
+        "integration_name",
+        "fixture_name",
+        "custom_http_headers",
+        "fixture_body",
+        "results_notice",
+        "results",
+    ]);
 
     $("#stream_name")[0].value = "Denmark";
     $("#topic_name")[0].value = "Integrations Testing";
@@ -308,7 +341,7 @@ $(function () {
         potential_default_bot.selected = true;
     }
 
-    $('#integration_name').change(function () {
+    $("#integration_name").change(function () {
         clear_elements(["custom_http_headers", "fixture_body", "fixture_name", "results_notice"]);
         const integration_name = $(this).children("option:selected").val();
         get_fixtures(integration_name);
@@ -316,19 +349,19 @@ $(function () {
         return;
     });
 
-    $('#fixture_name').change(function () {
+    $("#fixture_name").change(function () {
         clear_elements(["fixture_body", "results_notice"]);
         const fixture_name = $(this).children("option:selected").val();
         load_fixture_body(fixture_name);
         return;
     });
 
-    $('#send_fixture_button').click(function () {
+    $("#send_fixture_button").click(() => {
         send_webhook_fixture_message();
         return;
     });
 
-    $('#send_all_fixtures_button').click(function () {
+    $("#send_all_fixtures_button").click(() => {
         clear_elements(["results_notice"]);
         send_all_fixture_messages();
         return;
@@ -339,5 +372,4 @@ $(function () {
     $("#stream_name").change(update_url);
 
     $("#topic_name").change(update_url);
-
 });

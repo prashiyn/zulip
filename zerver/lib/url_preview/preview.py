@@ -1,16 +1,17 @@
 import re
-import requests
+from typing import Any, Callable, Dict, Optional
+from typing.re import Match
 
+import magic
+import requests
 from django.conf import settings
 from django.utils.encoding import smart_text
-import magic
-from typing import Any, Optional, Dict, Callable
-from typing.re import Match
 
 from version import ZULIP_VERSION
 from zerver.lib.cache import cache_with_key, get_cache_with_key, preview_url_cache_key
+from zerver.lib.pysa import mark_sanitized
 from zerver.lib.url_preview.oembed import get_oembed_data
-from zerver.lib.url_preview.parsers import OpenGraphParser, GenericParser
+from zerver.lib.url_preview.parsers import GenericParser, OpenGraphParser
 
 # FIXME: Should we use a database cache or a memcached in production? What if
 # opengraph data is changed for a site?
@@ -23,9 +24,15 @@ link_regex = re.compile(
     r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
     r'(?::\d+)?'  # optional port
     r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+
+# Use Chrome User-Agent, since some sites refuse to work on old browsers
+ZULIP_URL_PREVIEW_USER_AGENT = (
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ZulipURLPreview/{version}; '
+    '+{external_host}) Chrome/81.0.4044.113 Safari/537.36'
+).format(version=ZULIP_VERSION, external_host=settings.EXTERNAL_HOST)
+
 # FIXME: This header and timeout are not used by pyoembed, when trying to autodiscover!
-# Set a custom user agent, since some sites block us with the default requests header
-HEADERS = {'User-Agent': 'Zulip URL preview/%s' % (ZULIP_VERSION,)}
+HEADERS = {'User-Agent': ZULIP_URL_PREVIEW_USER_AGENT}
 TIMEOUT = 15
 
 
@@ -67,8 +74,8 @@ def catch_network_errors(func: Callable[..., Any]) -> Callable[..., Any]:
 @catch_network_errors
 @cache_with_key(preview_url_cache_key, cache_name=CACHE_NAME, with_statsd_key="urlpreview_data")
 def get_link_embed_data(url: str,
-                        maxwidth: Optional[int]=640,
-                        maxheight: Optional[int]=480) -> Optional[Dict[str, Any]]:
+                        maxwidth: int=640,
+                        maxheight: int=480) -> Optional[Dict[str, Any]]:
     if not is_link(url):
         return None
 
@@ -82,7 +89,7 @@ def get_link_embed_data(url: str,
     if data.get('oembed'):
         return data
 
-    response = requests.get(url, stream=True, headers=HEADERS, timeout=TIMEOUT)
+    response = requests.get(mark_sanitized(url), stream=True, headers=HEADERS, timeout=TIMEOUT)
     if response.ok:
         og_data = OpenGraphParser(response.text).extract_data()
         for key in ['title', 'description', 'image']:
@@ -96,5 +103,5 @@ def get_link_embed_data(url: str,
     return data
 
 @get_cache_with_key(preview_url_cache_key, cache_name=CACHE_NAME)
-def link_embed_data_from_cache(url: str, maxwidth: Optional[int]=640, maxheight: Optional[int]=480) -> Any:
+def link_embed_data_from_cache(url: str, maxwidth: int=640, maxheight: int=480) -> Any:
     return

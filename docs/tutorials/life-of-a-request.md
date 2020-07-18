@@ -78,9 +78,9 @@ we can see something called `i18n_urls`. These urls show up in the
 address bar of the browser, and serve HTML.
 
 For example, the `/features` page (preview
-[here](https://zulipchat.com/features/)) gets translated in Chinese at
+[here](https://zulip.com/features/)) gets translated in Chinese at
 `zh-hans/features/` (preview
-[here](https://zulipchat.com/zh-hans/features/)).
+[here](https://zulip.com/zh-hans/features/)).
 
 Note the `zh-hans` prefix--that url pattern gets added by `i18n_patterns`.
 
@@ -140,7 +140,7 @@ yields a response with this HTTP header:
 
 We can see this reflected in [zproject/urls.py](https://github.com/zulip/zulip/blob/master/zproject/urls.py):
 
-    url(r'^users$', 'zerver.lib.rest.rest_dispatch',
+    path('users', 'zerver.lib.rest.rest_dispatch',
         {'GET': 'zerver.views.users.get_members_backend',
          'PUT': 'zerver.views.users.create_user_backend'}),
 

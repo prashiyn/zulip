@@ -1,15 +1,15 @@
 import importlib
 import os
-import ujson
-
-import django.urls.resolvers
-from django.test import TestCase, Client
 from typing import List, Optional
 
+import django.urls.resolvers
+import ujson
+from django.test import Client
+
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.lib.test_runner import slow
 from zerver.models import Stream
 from zproject import urls
+
 
 class PublicURLTest(ZulipTestCase):
     """
@@ -22,10 +22,8 @@ class PublicURLTest(ZulipTestCase):
             # e.g. self.client_post(url) if method is "post"
             response = getattr(self, method)(url)
             self.assertEqual(response.status_code, expected_status,
-                             msg="Expected %d, received %d for %s to %s" % (
-                                 expected_status, response.status_code, method, url))
+                             msg=f"Expected {expected_status}, received {response.status_code} for {method} to {url}")
 
-    @slow("Tests dozens of endpoints, including all of our /help/ documents")
     def test_public_urls(self) -> None:
         """
         Test which views are accessible when not logged in.
@@ -39,7 +37,7 @@ class PublicURLTest(ZulipTestCase):
                           "/en/accounts/login/", "/ru/accounts/login/",
                           "/help/"],
                     302: ["/", "/en/", "/ru/"],
-                    401: ["/json/streams/%d/members" % (denmark_stream_id,),
+                    401: [f"/json/streams/{denmark_stream_id}/members",
                           "/api/v1/users/me/subscriptions",
                           "/api/v1/messages",
                           "/json/messages",
@@ -64,7 +62,6 @@ class PublicURLTest(ZulipTestCase):
                            "/json/subscriptions/exists",
                            "/api/v1/users/me/subscriptions/properties",
                            "/json/fetch_api_key",
-                           "/json/users/me/pointer",
                            "/json/users/me/subscriptions",
                            "/api/v1/users/me/subscriptions",
                            "/json/export/realm",
@@ -76,36 +73,31 @@ class PublicURLTest(ZulipTestCase):
         patch_urls = {
             401: ["/json/settings"],
         }
-        put_urls = {401: ["/json/users/me/pointer"],
-                    }
+
         for status_code, url_set in get_urls.items():
             self.fetch("client_get", url_set, status_code)
         for status_code, url_set in post_urls.items():
             self.fetch("client_post", url_set, status_code)
         for status_code, url_set in patch_urls.items():
             self.fetch("client_patch", url_set, status_code)
-        for status_code, url_set in put_urls.items():
-            self.fetch("client_put", url_set, status_code)
 
     def test_get_gcid_when_not_configured(self) -> None:
         with self.settings(GOOGLE_CLIENT_ID=None):
             resp = self.client_get("/api/v1/fetch_google_client_id")
             self.assertEqual(400, resp.status_code,
-                             msg="Expected 400, received %d for GET /api/v1/fetch_google_client_id" % (
-                                 resp.status_code,))
+                             msg=f"Expected 400, received {resp.status_code} for GET /api/v1/fetch_google_client_id")
             self.assertEqual('error', resp.json()['result'])
 
     def test_get_gcid_when_configured(self) -> None:
         with self.settings(GOOGLE_CLIENT_ID="ABCD"):
             resp = self.client_get("/api/v1/fetch_google_client_id")
             self.assertEqual(200, resp.status_code,
-                             msg="Expected 200, received %d for GET /api/v1/fetch_google_client_id" % (
-                                 resp.status_code,))
+                             msg=f"Expected 200, received {resp.status_code} for GET /api/v1/fetch_google_client_id")
             data = ujson.loads(resp.content)
             self.assertEqual('success', data['result'])
             self.assertEqual('ABCD', data['google_client_id'])
 
-class URLResolutionTest(TestCase):
+class URLResolutionTest(ZulipTestCase):
     def get_callback_string(self, pattern: django.urls.resolvers.URLPattern) -> Optional[str]:
         callback_str = hasattr(pattern, 'lookup_str') and 'lookup_str'
         callback_str = callback_str or '_callback_str'
@@ -113,7 +105,7 @@ class URLResolutionTest(TestCase):
 
     def check_function_exists(self, module_name: str, view: str) -> None:
         module = importlib.import_module(module_name)
-        self.assertTrue(hasattr(module, view), "View %s.%s does not exist" % (module_name, view))
+        self.assertTrue(hasattr(module, view), f"View {module_name}.{view} does not exist")
 
     # Tests that all views in urls.v1_api_and_json_patterns exist
     def test_rest_api_url_resolution(self) -> None:
@@ -136,7 +128,7 @@ class URLResolutionTest(TestCase):
                 (module_name, base_view) = callback_str.rsplit(".", 1)
                 self.check_function_exists(module_name, base_view)
 
-class ErrorPageTest(TestCase):
+class ErrorPageTest(ZulipTestCase):
     def test_bogus_http_host(self) -> None:
         # This tests that we've successfully worked around a certain bug in
         # Django's exception handling.  The enforce_csrf_checks=True,

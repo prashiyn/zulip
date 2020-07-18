@@ -1,4 +1,4 @@
-const FoldDict = require('./fold_dict').FoldDict;
+const FoldDict = require("./fold_dict").FoldDict;
 
 const stream_dict = new Map(); // stream_id -> per_stream_history object
 const fetched_stream_ids = new Set();
@@ -44,19 +44,47 @@ exports.stream_has_topics = function (stream_id) {
 
 exports.per_stream_history = function (stream_id) {
     /*
-        Each stream has a dictionary of topics.
-        The main getter of this object is
-        get_recent_topic_names, and we just
-        sort on the fly every time we are
-        called.
+        For a given stream, this structure has a dictionary of topics.
+        The main getter of this object is get_recent_topic_names, and
+        we just sort on the fly every time we are called.
+
+        Attributes for a topic are:
+        * message_id: The latest message_id in the topic.  Only usable
+          for imprecise applications like sorting.  The message_id
+          cannot be fully accurate given message editing and deleting
+          (as we don't have a way to handle the latest message in a
+          stream having its stream edited or deleted).
+
+          TODO: We can probably fix this limitation by doing a
+          single-message `GET /messages` query with anchor="latest",
+          num_before=0, num_after=0, to update this field when its
+          value becomes ambiguous.  Or probably better to avoid a
+          thundering herd (of a fast query), having the server send
+          the data needed to do this update in stream/topic-edit and
+          delete events (just the new max_message_id for the relevant
+          topic would likely suffice, though we need to think about
+          private stream corner cases).
+        * pretty_name: The topic_name, with original case.
+        * historical: Whether the user actually received any messages in
+          the topic (has UserMessage rows) or is just viewing the stream.
+        * count: Number of known messages in the topic.  Used to detect
+          when the last messages in a topic were moved to other topics or
+          deleted.
     */
 
     const topics = new FoldDict();
-
+    // Most recent message ID for the stream.
+    let max_message_id = 0;
     const self = {};
 
     self.has_topics = function () {
         return topics.size !== 0;
+    };
+
+    self.update_stream_max_message_id = function (message_id) {
+        if (message_id > max_message_id) {
+            max_message_id = message_id;
+        }
     };
 
     self.add_or_update = function (opts) {
@@ -64,6 +92,7 @@ exports.per_stream_history = function (stream_id) {
         let message_id = opts.message_id || 0;
 
         message_id = parseInt(message_id, 10);
+        self.update_stream_max_message_id(message_id);
 
         const existing = topics.get(topic_name);
 
@@ -87,7 +116,7 @@ exports.per_stream_history = function (stream_id) {
         }
     };
 
-    self.maybe_remove = function (topic_name) {
+    self.maybe_remove = function (topic_name, num_messages) {
         const existing = topics.get(topic_name);
 
         if (!existing) {
@@ -101,12 +130,12 @@ exports.per_stream_history = function (stream_id) {
             return;
         }
 
-        if (existing.count <= 1) {
+        if (existing.count <= num_messages) {
             topics.delete(topic_name);
             return;
         }
 
-        existing.count -= 1;
+        existing.count -= num_messages;
     };
 
     self.add_history = function (server_history) {
@@ -137,6 +166,7 @@ exports.per_stream_history = function (stream_id) {
                 pretty_name: topic_name,
                 historical: true,
             });
+            self.update_stream_max_message_id(message_id);
         }
     };
 
@@ -150,21 +180,24 @@ exports.per_stream_history = function (stream_id) {
 
         const recents = my_recents.concat(missing_topics);
 
-        recents.sort(function (a, b) {
-            return b.message_id - a.message_id;
-        });
+        recents.sort((a, b) => b.message_id - a.message_id);
 
-        const names = recents.map(obj => obj.pretty_name);
+        const names = recents.map((obj) => obj.pretty_name);
 
         return names;
+    };
+
+    self.get_max_message_id = function () {
+        return max_message_id;
     };
 
     return self;
 };
 
-exports.remove_message = function (opts) {
+exports.remove_messages = function (opts) {
     const stream_id = opts.stream_id;
     const topic_name = opts.topic_name;
+    const num_messages = opts.num_messages;
     const history = stream_dict.get(stream_id);
 
     // This is the special case of "removing" a message from
@@ -175,7 +208,7 @@ exports.remove_message = function (opts) {
     }
 
     // This is the normal case of an incoming message.
-    history.maybe_remove(topic_name);
+    history.maybe_remove(topic_name, num_messages);
 };
 
 exports.find_or_create = function (stream_id) {
@@ -214,7 +247,7 @@ exports.get_server_history = function (stream_id, on_success) {
         return;
     }
 
-    const url = '/json/users/me/' + stream_id + '/topics';
+    const url = "/json/users/me/" + stream_id + "/topics";
 
     channel.get({
         url: url,
@@ -231,6 +264,12 @@ exports.get_recent_topic_names = function (stream_id) {
     const history = exports.find_or_create(stream_id);
 
     return history.get_recent_topic_names();
+};
+
+exports.get_max_message_id = function (stream_id) {
+    const history = exports.find_or_create(stream_id);
+
+    return history.get_max_message_id();
 };
 
 exports.reset = function () {

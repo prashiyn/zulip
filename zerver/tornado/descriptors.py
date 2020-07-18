@@ -1,4 +1,4 @@
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 
 if TYPE_CHECKING:
     from zerver.tornado.event_queue import ClientDescriptor
@@ -12,6 +12,5 @@ def set_descriptor_by_handler_id(handler_id: int,
                                  client_descriptor: 'ClientDescriptor') -> None:
     descriptors_by_handler_id[handler_id] = client_descriptor
 
-def clear_descriptor_by_handler_id(handler_id: int,
-                                   client_descriptor: 'ClientDescriptor') -> None:
+def clear_descriptor_by_handler_id(handler_id: int) -> None:
     del descriptors_by_handler_id[handler_id]

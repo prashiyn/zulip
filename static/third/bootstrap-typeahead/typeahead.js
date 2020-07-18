@@ -28,6 +28,7 @@
  *   choice.
  *
  *   Our custom changes include all mentions of this.automated.
+ *   And also includes the blocks containing the is contenteditable condition.
  *
  * 2. Custom selection triggers:
  *
@@ -50,13 +51,24 @@
  *   in compose.scss and splitting $container out of $menu so we can insert
  *   additional HTML before $menu.
  *
- * 4. Navbar changes:
+ * 4. Escape hooks:
  *
- *  Typically, typeahead hotkey actions are independent of other application
- *  actions, however, the navbar is one case where we want to try and do more
- *  than a simple typeahead action with a single hotkey press, and so we've
- *  been forced to make a custom modification, see inline comment at `Esc`
- *  keyup for more details.
+ *  You can set an on_escape hook to take extra actions when the user hits
+ *  the `Esc` key.  We use this in our navbar code to close the navbar when
+ *  a user hits escape while in the typeahead.
+ *
+ * 5. Help on empty strings:
+ *
+ *   This adds support for displaying the typeahead for an empty string.
+ *   It is helpful when we want to render the typeahead, based on already
+ *   entered data (in the form of contenteditable elements) every time the
+ *   input block gains focus but is empty.
+ *
+ *   We also have logic so that there is an exception to this rule when this
+ *   option is set as true. We prevent the lookup of the typeahead and hide it
+ *   so that the `Backspace` key is free to interact with the other elements.
+ *
+ *   Our custom changes include all mentions of `helpOnEmptyStrings` and `hideOnEmpty`.
  * ============================================================ */
 
 !function($){
@@ -83,6 +95,8 @@
     this.fixed = this.options.fixed || false;
     this.automated = this.options.automated || this.automated;
     this.trigger_selection = this.options.trigger_selection || this.trigger_selection;
+    this.on_move = this.options.on_move;
+    this.on_escape = this.options.on_escape;
     this.header = this.options.header || this.header;
 
     if (this.fixed) {
@@ -100,15 +114,25 @@
 
   , select: function (e) {
       var val = this.$menu.find('.active').data('typeahead-value')
-      this.$element
-        .val(this.updater(val, e))
-        .change()
+      if (this.$element.is("[contenteditable]")) {
+        this.$element.html(this.updater(val, e)).change();
+        // Empty textContent after the change event handler
+        // converts the input text to html elements.
+        this.$element.html('');
+      } else {
+        this.$element.val(this.updater(val, e)).change();
+      }
+
       return this.hide()
     }
 
   , set_value: function () {
       var val = this.$menu.find('.active').data('typeahead-value')
-      this.$element.val(val)
+      this.$element.is("[contenteditable]") ? this.$element.html(val) : this.$element.val(val);
+
+      if (this.on_move) {
+        this.on_move();
+      }
     }
 
   , updater: function (item) {
@@ -174,12 +198,12 @@
       return this
     }
 
-  , lookup: function (event) {
+  , lookup: function (hideOnEmpty) {
       var items
 
       this.query = this.$element.is("[contenteditable]") ? this.$element.text() :  this.$element.val();
 
-      if (!this.options.helpOnEmptyStrings) {
+      if (!this.options.helpOnEmptyStrings || hideOnEmpty) {
         if (!this.query || this.query.length < this.options.minLength) {
           return this.shown ? this.hide() : this
         }
@@ -356,14 +380,10 @@
 
         case 27: // escape
           if (!this.shown) return
-          // Custom Zulip code to achieve the following goals:
-          // when the searchbox is open in the navbar, and the typeahead is open, a single `Esc` should
-          // be able to close both the searchbox and the typeahead.
-          if ($("input:focus,textarea:focus")[0].className === "search-query input-block-level") {
-            tab_bar.exit_search();
-            $("input:focus,textarea:focus").blur();
-          }
           this.hide()
+          if (this.on_escape) {
+            this.on_escape();
+          }
           break
 
         default:
@@ -371,7 +391,11 @@
             if (!this.shown) return;
             this.select(e);
           }
-          this.lookup()
+          var hideOnEmpty = false
+          if (e.keyCode === 8 && this.options.helpOnEmptyStrings) { // backspace
+            hideOnEmpty = true
+          }
+          this.lookup(hideOnEmpty)
       }
 
       if ((this.options.stopAdvance || (e.keyCode != 9 && e.keyCode != 13))

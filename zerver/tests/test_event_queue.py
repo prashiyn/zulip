@@ -1,18 +1,24 @@
-import mock
 import time
+from typing import Any, Callable, Dict, List, Tuple
+from unittest import mock
+
 import ujson
-
 from django.http import HttpRequest, HttpResponse
-from typing import Any, Callable, Dict, Tuple
 
-from zerver.lib.actions import do_mute_topic, do_change_subscription_property
+from zerver.lib.actions import do_change_subscription_property, do_mute_topic
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import POSTRequestMock
 from zerver.models import Recipient, Stream, Subscription, UserProfile, get_stream
-from zerver.tornado.event_queue import maybe_enqueue_notifications, \
-    allocate_client_descriptor, ClientDescriptor, \
-    get_client_descriptor, missedmessage_hook, persistent_queue_filename
-from zerver.tornado.views import get_events, cleanup_event_queue
+from zerver.tornado.event_queue import (
+    ClientDescriptor,
+    allocate_client_descriptor,
+    get_client_descriptor,
+    maybe_enqueue_notifications,
+    missedmessage_hook,
+    persistent_queue_filename,
+)
+from zerver.tornado.views import cleanup_event_queue, get_events
+
 
 class MissedMessageNotificationsTest(ZulipTestCase):
     """Tests the logic for when missed-message notifications
@@ -520,86 +526,103 @@ class EventQueueTest(ZulipTestCase):
     def test_one_event(self) -> None:
         client = self.get_client_descriptor()
         queue = client.event_queue
-        queue.push({"type": "pointer",
-                    "pointer": 1,
-                    "timestamp": "1"})
+        in_dict = dict(
+            type="arbitrary",
+            x="foo",
+            y=42,
+            z=False,
+            timestamp="1",
+        )
+        out_dict = dict(
+            id=0,
+            **in_dict,
+        )
+        queue.push(in_dict)
         self.assertFalse(queue.empty())
         self.verify_to_dict_end_to_end(client)
-        self.assertEqual(queue.contents(),
-                         [{'id': 0,
-                           'type': 'pointer',
-                           "pointer": 1,
-                           "timestamp": "1"}])
+        self.assertEqual(queue.contents(), [out_dict])
         self.verify_to_dict_end_to_end(client)
 
     def test_event_collapsing(self) -> None:
         client = self.get_client_descriptor()
         queue = client.event_queue
-        for pointer_val in range(1, 10):
-            queue.push({"type": "pointer",
-                        "pointer": pointer_val,
-                        "timestamp": str(pointer_val)})
-            self.verify_to_dict_end_to_end(client)
-        self.assertEqual(queue.contents(),
-                         [{'id': 8,
-                           'type': 'pointer',
-                           "pointer": 9,
-                           "timestamp": "9"}])
+
+        '''
+        The update_message_flags events are special, because
+        they can be collapsed together.  Given two umfe's, we:
+            * use the latest timestamp
+            * concatenate the messages
+        '''
+        def umfe(timestamp: int, messages: List[int]) -> Dict[str, Any]:
+            return dict(
+                type='update_message_flags',
+                operation='add',
+                flag='read',
+                all=False,
+                timestamp=timestamp,
+                messages=messages,
+            )
+
+        events = [
+            umfe(timestamp=1, messages=[101]),
+            umfe(timestamp=2, messages=[201, 202]),
+            dict(type='unknown'),
+            dict(type='restart', server_generation="1"),
+            umfe(timestamp=3, messages=[301, 302, 303]),
+            dict(type='restart', server_generation="2"),
+            umfe(timestamp=4, messages=[401, 402, 403, 404]),
+        ]
+
+        for event in events:
+            queue.push(event)
+
         self.verify_to_dict_end_to_end(client)
 
-        client = self.get_client_descriptor()
-        queue = client.event_queue
-        for pointer_val in range(1, 10):
-            queue.push({"type": "pointer",
-                        "pointer": pointer_val,
-                        "timestamp": str(pointer_val)})
-            self.verify_to_dict_end_to_end(client)
+        self.assertEqual(queue.contents(), [
+            dict(id=2, type='unknown'),
+            dict(id=5, type='restart', server_generation="2"),
+            dict(
+                id=6,
+                type='update_message_flags',
+                operation='add',
+                flag='read',
+                all=False,
+                timestamp=4,
+                messages=[101, 201, 202, 301, 302, 303, 401, 402, 403, 404],
+            ),
+        ])
 
-        queue.push({"type": "unknown"})
-        self.verify_to_dict_end_to_end(client)
-
-        queue.push({"type": "restart", "server_generation": "1"})
-        self.verify_to_dict_end_to_end(client)
-
-        for pointer_val in range(11, 20):
-            queue.push({"type": "pointer",
-                        "pointer": pointer_val,
-                        "timestamp": str(pointer_val)})
-            self.verify_to_dict_end_to_end(client)
-        queue.push({"type": "restart", "server_generation": "2"})
-        self.verify_to_dict_end_to_end(client)
-        self.assertEqual(queue.contents(),
-                         [{"type": "unknown",
-                           "id": 9},
-                          {'id': 19,
-                           'type': 'pointer',
-                           "pointer": 19,
-                           "timestamp": "19"},
-                          {"id": 20,
-                           "type": "restart",
-                           "server_generation": "2"}])
-        self.verify_to_dict_end_to_end(client)
-        for pointer_val in range(21, 23):
-            queue.push({"type": "pointer",
-                        "pointer": pointer_val,
-                        "timestamp": str(pointer_val)})
-            self.verify_to_dict_end_to_end(client)
-        self.assertEqual(queue.contents(),
-                         [{"type": "unknown",
-                           "id": 9},
-                          {'id': 19,
-                           'type': 'pointer',
-                           "pointer": 19,
-                           "timestamp": "19"},
-                          {"id": 20,
-                           "type": "restart",
-                           "server_generation": "2"},
-                          {'id': 22,
-                           'type': 'pointer',
-                           "pointer": 22,
-                           "timestamp": "22"},
-                          ])
-        self.verify_to_dict_end_to_end(client)
+        '''
+        Note that calling queue.contents() has the side
+        effect that we will no longer be able to collapse
+        the previous events, so the next event will just
+        get added to the queue, rather than collapsed.
+        '''
+        queue.push(
+            umfe(timestamp=5, messages=[501, 502, 503, 504, 505]),
+        )
+        self.assertEqual(queue.contents(), [
+            dict(id=2, type='unknown'),
+            dict(id=5, type='restart', server_generation="2"),
+            dict(
+                id=6,
+                type='update_message_flags',
+                operation='add',
+                flag='read',
+                all=False,
+                timestamp=4,
+                messages=[101, 201, 202, 301, 302, 303, 401, 402, 403, 404],
+            ),
+            dict(
+                id=7,
+                type='update_message_flags',
+                operation='add',
+                flag='read',
+                all=False,
+                timestamp=5,
+                messages=[501, 502, 503, 504, 505],
+            ),
+        ])
 
     def test_flag_add_collapsing(self) -> None:
         client = self.get_client_descriptor()
@@ -656,17 +679,24 @@ class EventQueueTest(ZulipTestCase):
         self.verify_to_dict_end_to_end(client)
 
     def test_collapse_event(self) -> None:
+        '''
+        This mostly focues on the internals of
+        how we store "virtual_events" that we
+        can collapse if subsequent events are
+        of the same form.  See the code in
+        EventQueue.push for more context.
+        '''
         client = self.get_client_descriptor()
         queue = client.event_queue
-        queue.push({"type": "pointer",
-                    "pointer": 1,
+        queue.push({"type": "restart",
+                    "server_generation": 1,
                     "timestamp": "1"})
-        # Verify the pointer event is stored as a virtual event
+        # Verify the server_generation event is stored as a virtual event
         self.assertEqual(queue.virtual_events,
-                         {'pointer':
+                         {'restart':
                           {'id': 0,
-                           'type': 'pointer',
-                           'pointer': 1,
+                           'type': 'restart',
+                           'server_generation': 1,
                            "timestamp": "1"}})
         # And we can reconstruct newest_pruned_id etc.
         self.verify_to_dict_end_to_end(client)
@@ -678,10 +708,10 @@ class EventQueueTest(ZulipTestCase):
                            'type': 'unknown',
                            "timestamp": "1"}])
         self.assertEqual(queue.virtual_events,
-                         {'pointer':
+                         {'restart':
                           {'id': 0,
-                           'type': 'pointer',
-                           'pointer': 1,
+                           'type': 'restart',
+                           'server_generation': 1,
                            "timestamp": "1"}})
         # And we can still reconstruct newest_pruned_id etc. correctly
         self.verify_to_dict_end_to_end(client)
@@ -689,8 +719,8 @@ class EventQueueTest(ZulipTestCase):
         # Verify virtual events are converted to real events by .contents()
         self.assertEqual(queue.contents(),
                          [{'id': 0,
-                           'type': 'pointer',
-                           "pointer": 1,
+                           'type': 'restart',
+                           "server_generation": 1,
                            "timestamp": "1"},
                           {'id': 1,
                            'type': 'unknown',

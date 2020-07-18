@@ -1,9 +1,10 @@
-from zerver.lib.actions import do_mark_hotspot_as_read, do_create_user
+import ujson
+
+from zerver.lib.actions import do_create_user, do_mark_hotspot_as_read
 from zerver.lib.hotspots import ALL_HOTSPOTS, get_next_hotspots
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.models import UserProfile, UserHotspot, get_realm
+from zerver.models import UserHotspot, UserProfile, get_realm
 
-import ujson
 
 # Splitting this out, since I imagine this will eventually have most of the
 # complicated hotspots logic.
@@ -11,7 +12,11 @@ class TestGetNextHotspots(ZulipTestCase):
     def setUp(self) -> None:
         super().setUp()
         self.user = do_create_user(
-            'user@zulip.com', 'password', get_realm('zulip'), 'user', 'user')
+            'user@zulip.com',
+            'password',
+            get_realm('zulip'),
+            'user',
+        )
 
     def test_first_hotspot(self) -> None:
         hotspots = get_next_hotspots(self.user)

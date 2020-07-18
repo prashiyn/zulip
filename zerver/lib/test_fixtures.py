@@ -1,27 +1,29 @@
+import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
-from typing import Any, List, Set
+import time
 from importlib import import_module
 from io import StringIO
-import glob
-import time
-import shutil
+from typing import Any, List, Set
 
-from django.db import connections, DEFAULT_DB_ALIAS, ProgrammingError, \
-    connection
-from django.db.utils import OperationalError
 from django.apps import apps
 from django.conf import settings
 from django.core.management import call_command
+from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connection, connections
+from django.db.utils import OperationalError
 from django.utils.module_loading import module_has_submodule
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from scripts.lib.zulip_tools import (
-    get_dev_uuid_var_path, run, TEMPLATE_DATABASE_DIR,
-    is_digest_obsolete, write_new_digest,
+    TEMPLATE_DATABASE_DIR,
+    get_dev_uuid_var_path,
+    is_digest_obsolete,
+    run,
+    write_new_digest,
 )
 
 UUID_VAR_DIR = get_dev_uuid_var_path()
@@ -69,7 +71,7 @@ class Database:
         self.migration_status_file = 'migration_status_' + platform
         self.migration_status_path = os.path.join(
             UUID_VAR_DIR,
-            self.migration_status_file
+            self.migration_status_file,
         )
         self.migration_digest_file = "migrations_hash_" + database_name
 
@@ -79,6 +81,7 @@ class Database:
             return json.dumps(value, sort_keys=True)
 
         return [
+            get('LOCAL_DATABASE_PASSWORD'),
             get('INTERNAL_BOTS'),
             get('REALM_INTERNAL_BOTS'),
             get('DISABLED_REALM_INTERNAL_BOTS'),
@@ -137,7 +140,7 @@ class Database:
 
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT 1 from pg_database WHERE datname='{}';".format(self.database_name)
+                    "SELECT 1 from pg_database WHERE datname=%s;", [self.database_name],
                 )
                 return_value = bool(cursor.fetchone())
             connections.close_all()
@@ -186,15 +189,6 @@ class Database:
             return 'needs_rebuild'
 
         if self.files_or_settings_have_changed():
-            # Write the new hash, relying on our callers to
-            # actually rebuild the db successfully.
-            # TODO: Move this code to the callers, and write
-            #       the digest only AFTER the rebuild succeeds.
-            write_new_digest(
-                self.digest_name,
-                IMPORTANT_FILES,
-                self.important_settings(),
-            )
             return 'needs_rebuild'
 
         # Here we hash and compare our migration files before doing
@@ -237,6 +231,13 @@ class Database:
             migration_paths(),
         )
 
+    def write_new_db_digest(self) -> None:
+        write_new_digest(
+            self.digest_name,
+            IMPORTANT_FILES,
+            self.important_settings(),
+        )
+
 DEV_DATABASE = Database(
     platform='dev',
     database_name='zulip',
@@ -269,7 +270,8 @@ def update_test_databases_if_required(rebuild_test_database: bool=False) -> None
     test_template_db_status = TEST_DATABASE.template_status()
 
     if test_template_db_status == 'needs_rebuild':
-        run(['tools/rebuild-dev-database'])
+        run(['tools/rebuild-test-database'])
+        TEST_DATABASE.write_new_db_digest()
         return
 
     if test_template_db_status == 'run_migrations':
@@ -290,7 +292,7 @@ def get_migration_status(**options: Any) -> str:
     app_label = options['app_label'] if options.get('app_label') else None
     db = options.get('database', DEFAULT_DB_ALIAS)
     out = StringIO()
-    command_args = ['--list', ]
+    command_args = ['--list']
     if app_label:
         command_args.append(app_label)
 
@@ -345,7 +347,7 @@ def destroy_leaked_test_databases(expiry_time: int = 60 * 60) -> int:
         if round(time.time()) - os.path.getmtime(file) < expiry_time:
             with open(file) as f:
                 for line in f:
-                    databases_in_use.add('zulip_test_template_{}'.format(line).rstrip())
+                    databases_in_use.add(f'zulip_test_template_{line}'.rstrip())
         else:
             # Any test-backend run older than expiry_time can be
             # cleaned up, both the database and the file listing its
@@ -357,7 +359,7 @@ def destroy_leaked_test_databases(expiry_time: int = 60 * 60) -> int:
     if not databases_to_drop:
         return 0
 
-    commands = "\n".join("DROP DATABASE IF EXISTS %s;" % (db,) for db in databases_to_drop)
+    commands = "\n".join(f"DROP DATABASE IF EXISTS {db};" for db in databases_to_drop)
     p = subprocess.Popen(["psql", "-q", "-v", "ON_ERROR_STOP=1", "-h", "localhost",
                           "postgres", "zulip_test"],
                          stdin=subprocess.PIPE)

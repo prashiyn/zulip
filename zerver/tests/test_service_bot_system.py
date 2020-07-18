@@ -1,25 +1,17 @@
-import mock
-from typing import Any, Union, Mapping, Callable
+from typing import Any, Mapping, Union
+from unittest import mock
 
+import ujson
 from django.conf import settings
 from django.test import override_settings
 
-from zerver.lib.actions import (
-    do_create_user,
-    get_service_bot_events,
-)
-from zerver.lib.bot_lib import StateHandler, EmbeddedBotHandler, \
-    EmbeddedBotEmptyRecipientsList
+from zerver.lib.actions import do_create_user, get_service_bot_events
+from zerver.lib.bot_config import ConfigError, load_bot_config_template, set_bot_config
+from zerver.lib.bot_lib import EmbeddedBotEmptyRecipientsList, EmbeddedBotHandler, StateHandler
 from zerver.lib.bot_storage import StateError
-from zerver.lib.bot_config import set_bot_config, ConfigError, load_bot_config_template
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.models import (
-    get_realm,
-    UserProfile,
-    Recipient,
-)
-
-import ujson
+from zerver.lib.validator import check_string
+from zerver.models import Recipient, UserProfile, get_realm
 
 BOT_TYPE_TO_QUEUE_NAME = {
     UserProfile.OUTGOING_WEBHOOK_BOT: 'outgoing_webhooks',
@@ -33,7 +25,6 @@ class TestServiceBotBasics(ZulipTestCase):
             password="test",
             realm=get_realm("zulip"),
             full_name="BarBot",
-            short_name='bb',
             bot_type=UserProfile.OUTGOING_WEBHOOK_BOT,
             bot_owner=self.example_user('cordelia'),
         )
@@ -45,6 +36,7 @@ class TestServiceBotBasics(ZulipTestCase):
         assert(not sender.is_bot)
 
         outgoing_bot = self._get_outgoing_bot()
+        assert outgoing_bot.bot_type is not None
 
         event_dict = get_service_bot_events(
             sender=sender,
@@ -69,6 +61,7 @@ class TestServiceBotBasics(ZulipTestCase):
         assert(not sender.is_bot)
 
         outgoing_bot = self._get_outgoing_bot()
+        assert outgoing_bot.bot_type is not None
 
         # If outgoing_bot is not in mentioned_user_ids,
         # we will skip over it.  This tests an anomaly
@@ -92,6 +85,7 @@ class TestServiceBotBasics(ZulipTestCase):
         assert(not sender.is_bot)
 
         outgoing_bot = self._get_outgoing_bot()
+        assert outgoing_bot.bot_type is not None
 
         cordelia = self.example_user('cordelia')
 
@@ -126,6 +120,7 @@ class TestServiceBotBasics(ZulipTestCase):
         assert(not sender.is_bot)
 
         outgoing_bot = self._get_outgoing_bot()
+        assert outgoing_bot.bot_type is not None
 
         event_dict = get_service_bot_events(
             sender=sender,
@@ -174,14 +169,12 @@ class TestServiceBotStateHandler(ZulipTestCase):
                                           password="test",
                                           realm=get_realm("zulip"),
                                           full_name="EmbeddedBo1",
-                                          short_name="embedded-bot-1",
                                           bot_type=UserProfile.EMBEDDED_BOT,
                                           bot_owner=self.user_profile)
         self.second_bot_profile = do_create_user(email="embedded-bot-2@zulip.com",
                                                  password="test",
                                                  realm=get_realm("zulip"),
                                                  full_name="EmbeddedBot2",
-                                                 short_name="embedded-bot-2",
                                                  bot_type=UserProfile.EMBEDDED_BOT,
                                                  bot_owner=self.user_profile)
 
@@ -207,18 +200,8 @@ class TestServiceBotStateHandler(ZulipTestCase):
     def test_marshaling(self) -> None:
         storage = StateHandler(self.bot_profile)
         serializable_obj = {'foo': 'bar', 'baz': [42, 'cux']}
-        storage.put('some key', serializable_obj)  # type: ignore[arg-type] # Ignore for testing.
+        storage.put('some key', serializable_obj)
         self.assertEqual(storage.get('some key'), serializable_obj)
-
-    def test_invalid_calls(self) -> None:
-        storage = StateHandler(self.bot_profile)
-        storage.marshal = lambda obj: obj
-        storage.demarshal = lambda obj: obj
-        serializable_obj = {'foo': 'bar', 'baz': [42, 'cux']}
-        with self.assertRaisesMessage(StateError, "Value type is <class 'dict'>, but should be str."):
-            storage.put('some key', serializable_obj)  # type: ignore[arg-type] # We intend to test an invalid type.
-        with self.assertRaisesMessage(StateError, "Key type is <class 'dict'>, but should be str."):
-            storage.put(serializable_obj, 'some value')  # type: ignore[arg-type] # We intend to test an invalid type.
 
     # Reduce maximal storage size for faster test string construction.
     @override_settings(USER_STATE_SIZE_LIMIT=100)
@@ -227,7 +210,7 @@ class TestServiceBotStateHandler(ZulipTestCase):
 
         # Disable marshaling for storing a string whose size is
         # equivalent to the size of the stored object.
-        storage.marshal = lambda obj: obj
+        storage.marshal = lambda obj: check_string("obj", obj)
         storage.demarshal = lambda obj: obj
 
         key = 'capacity-filling entry'
@@ -258,14 +241,14 @@ class TestServiceBotStateHandler(ZulipTestCase):
         # Store some data.
         initial_dict = {'key 1': 'value 1', 'key 2': 'value 2', 'key 3': 'value 3'}
         params = {
-            'storage': ujson.dumps(initial_dict)
+            'storage': ujson.dumps(initial_dict),
         }
         result = self.client_put('/json/bot_storage', params)
         self.assert_json_success(result)
 
         # Assert the stored data for some keys.
         params = {
-            'keys': ujson.dumps(['key 1', 'key 3'])
+            'keys': ujson.dumps(['key 1', 'key 3']),
         }
         result = self.client_get('/json/bot_storage', params)
         self.assert_json_success(result)
@@ -279,7 +262,7 @@ class TestServiceBotStateHandler(ZulipTestCase):
         # Store some more data; update an entry and store a new entry
         dict_update = {'key 1': 'new value', 'key 4': 'value 4'}
         params = {
-            'storage': ujson.dumps(dict_update)
+            'storage': ujson.dumps(dict_update),
         }
         result = self.client_put('/json/bot_storage', params)
         self.assert_json_success(result)
@@ -292,28 +275,28 @@ class TestServiceBotStateHandler(ZulipTestCase):
         self.assertEqual(result.json()['storage'], updated_dict)
 
         # Assert errors on invalid requests.
-        params = {
-            'keys': ["This is a list, but should be a serialized string."]  # type: ignore[dict-item] # Ignore 'incompatible type "str": "List[str]"; expected "str": "str"' for testing
+        invalid_params = {
+            'keys': ["This is a list, but should be a serialized string."],
         }
-        result = self.client_get('/json/bot_storage', params)
+        result = self.client_get('/json/bot_storage', invalid_params)
         self.assert_json_error(result, 'Argument "keys" is not valid JSON.')
 
         params = {
-            'keys': ujson.dumps(["key 1", "nonexistent key"])
+            'keys': ujson.dumps(["key 1", "nonexistent key"]),
         }
         result = self.client_get('/json/bot_storage', params)
         self.assert_json_error(result, "Key does not exist.")
 
         params = {
-            'storage': ujson.dumps({'foo': [1, 2, 3]})
+            'storage': ujson.dumps({'foo': [1, 2, 3]}),
         }
         result = self.client_put('/json/bot_storage', params)
-        self.assert_json_error(result, "Value type is <class 'list'>, but should be str.")
+        self.assert_json_error(result, "storage contains a value that is not a string")
 
         # Remove some entries.
         keys_to_remove = ['key 1', 'key 2']
         params = {
-            'keys': ujson.dumps(keys_to_remove)
+            'keys': ujson.dumps(keys_to_remove),
         }
         result = self.client_delete('/json/bot_storage', params)
         self.assert_json_success(result)
@@ -327,7 +310,7 @@ class TestServiceBotStateHandler(ZulipTestCase):
 
         # Try to remove an existing and a nonexistent key.
         params = {
-            'keys': ujson.dumps(['key 3', 'nonexistent key'])
+            'keys': ujson.dumps(['key 3', 'nonexistent key']),
         }
         result = self.client_delete('/json/bot_storage', params)
         self.assert_json_error(result, "Key does not exist.")
@@ -411,14 +394,12 @@ class TestServiceBotEventTriggers(ZulipTestCase):
                                           password="test",
                                           realm=get_realm("zulip"),
                                           full_name="FooBot",
-                                          short_name="foo-bot",
                                           bot_type=UserProfile.OUTGOING_WEBHOOK_BOT,
                                           bot_owner=self.user_profile)
         self.second_bot_profile = do_create_user(email="bar-bot@zulip.com",
                                                  password="test",
                                                  realm=get_realm("zulip"),
                                                  full_name="BarBot",
-                                                 short_name="bar-bot",
                                                  bot_type=UserProfile.OUTGOING_WEBHOOK_BOT,
                                                  bot_owner=self.user_profile)
 
@@ -433,9 +414,10 @@ class TestServiceBotEventTriggers(ZulipTestCase):
             trigger = 'mention'
             message_type = Recipient._type_names[Recipient.STREAM]
 
-            def check_values_passed(queue_name: Any,
-                                    trigger_event: Union[Mapping[Any, Any], Any],
-                                    x: Callable[[Any], None]=None) -> None:
+            def check_values_passed(
+                queue_name: Any,
+                trigger_event: Union[Mapping[Any, Any], Any],
+            ) -> None:
                 self.assertEqual(queue_name, expected_queue_name)
                 self.assertEqual(trigger_event["message"]["content"], content)
                 self.assertEqual(trigger_event["message"]["display_recipient"], recipient)
@@ -478,9 +460,10 @@ class TestServiceBotEventTriggers(ZulipTestCase):
             sender = self.user_profile
             recipient = self.bot_profile
 
-            def check_values_passed(queue_name: Any,
-                                    trigger_event: Union[Mapping[Any, Any], Any],
-                                    x: Callable[[Any], None]=None) -> None:
+            def check_values_passed(
+                queue_name: Any,
+                trigger_event: Union[Mapping[Any, Any], Any],
+            ) -> None:
                 self.assertEqual(queue_name, expected_queue_name)
                 self.assertEqual(trigger_event["user_profile_id"], self.bot_profile.id)
                 self.assertEqual(trigger_event["trigger"], "private_message")
@@ -520,9 +503,10 @@ class TestServiceBotEventTriggers(ZulipTestCase):
             recipients = [self.bot_profile, self.second_bot_profile]
             profile_ids = [self.bot_profile.id, self.second_bot_profile.id]
 
-            def check_values_passed(queue_name: Any,
-                                    trigger_event: Union[Mapping[Any, Any], Any],
-                                    x: Callable[[Any], None]=None) -> None:
+            def check_values_passed(
+                queue_name: Any,
+                trigger_event: Union[Mapping[Any, Any], Any],
+            ) -> None:
                 self.assertEqual(queue_name, expected_queue_name)
                 self.assertIn(trigger_event["user_profile_id"], profile_ids)
                 profile_ids.remove(trigger_event["user_profile_id"])

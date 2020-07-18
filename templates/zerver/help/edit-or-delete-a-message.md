@@ -31,7 +31,7 @@ content.
     [disabled by an organization administrator](/help/disable-message-edit-history).
 
 If you don't see the pencil (<i class="fa fa-pencil"></i>) icon, the message content
-can no longer be edited. You should see a file (<i class="fa fa-file-text-o"></i>)
+can no longer be edited. You should see a file (<i class="fa fa-file-code-o"></i>)
 icon instead. Clicking the file icon will allow you to view the
 [Markdown source](/help/view-the-markdown-source-of-a-message) of the message, or
 [edit the topic](/help/change-the-topic-of-a-message).
@@ -65,9 +65,31 @@ administrator.
 If you don't see the **Delete message** option, it means you don't have
 permissions to delete that message.
 
-It's important to understand that anyone who received the message before you
-deleted it could have made a copy of its content. Even if no one is online
-when you send the message, users may have received the message via email or
-mobile notifications. So if you accidentally shared secret information that
-you can change, like a password, you may want to change that password
-regardless of whether you also delete the message.
+## How deletion works
+
+* Deleted messages will immediately disappear from the UI in all
+  official Zulip clients.
+* Any uploaded files referenced only by deleted messages will also be
+  immediately inaccessible (An uploaded file shared in multiple
+  messages will not be deleted until all of those messages are
+  deleted).
+* It's important to understand that anyone who received the message
+  before you deleted it could have made a copy of its content. Even if
+  no one is online when you send the message, users may have received
+  the message via email or mobile notifications. So if you
+  accidentally shared secret information that you can change, like a
+  password, you may want to change that password regardless of whether
+  you also delete the message.
+* For protection against accidental or immediately regretted
+  deletions, messages deleted directly or via a [message retention
+  policy](/help/message-retention-policy) are archived for 7 days in a
+  format that can be restored by a server administrator.  After that
+  time, they are permanently and irrecoverably deleted from the Zulip
+  server.  Server administrators can adjust the archival time using
+  the `ARCHIVED_DATA_VACUUMING_DELAY_DAYS` setting.
+
+## Related articles
+
+* [Delete a topic](/help/delete-a-topic)
+* [Delete a stream](/help/delete-a-stream)
+* [Message retention policy](/help/message-retention-policy)

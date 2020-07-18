@@ -33,7 +33,7 @@
                     <i class="icon fa fa-book" aria-hidden="true"></i>
                     <div class="text">{{ _('Alert words') }}</div>
                 </li>
-                {% if max_file_upload_size > 0 %}
+                {% if max_file_upload_size_mib > 0 %}
                 <li tabindex="0" data-section="uploaded-files">
                     <i class="icon fa fa-paperclip" aria-hidden="true"></i>
                     <div class="text">{{ _('Uploaded files') }}</div>
@@ -87,8 +87,8 @@
                 <li class="collapse-org-settings {% if not is_admin %}hide-org-settings{% endif %}" tabindex="0" data-section="auth-methods">
                     <i class="icon fa fa-key" aria-hidden="true"></i>
                     <div class="text">{{ _('Authentication methods') }}</div>
-                    {% if not is_admin %}
-                    <i class="locked fa fa-lock" title="{{ _('Only organization administrators can edit these settings.') }}"></i>
+                    {% if not is_owner %}
+                    <i class="locked fa fa-lock" title="{{ _('Only organization owners can edit these settings.') }}"></i>
                     {% endif %}
                 </li>
                 {% if not is_guest %}
@@ -140,11 +140,13 @@
                     <div class="text">{{ _('Custom profile fields') }}</div>
                 </li>
                 {% endif %}
-                {% if is_admin %}
+                {% if not guest %}
                 <li tabindex="0" data-section="invites-list-admin">
-                    <i class="icon fa fa-user" aria-hidden="true"></i>
+                    <i class="icon fa fa-user-plus" aria-hidden="true"></i>
                     <div class="text">{{ _('Invitations') }}</div>
                 </li>
+                {% endif %}
+                {% if is_admin %}
                 <li tabindex="0" data-section="data-exports-admin">
                     <i class="icon fa fa-database" aria-hidden="true"></i>
                     <div class="text">{{ _('Data exports') }}</div>
@@ -171,10 +173,10 @@
 
             </div>
             <div class="settings-box">
-
             </div>
         </div>
-
-        {% include "zerver/app/settings_sidebar.html" %}
+        <div id="edit_bot_modal" class="modal modal-bg hide fade" tabindex="-1" role="dialog"
+          aria-labelledby="edit_bot_modal_label" aria-hidden="true">
+        </div>
     </div>
 </div>

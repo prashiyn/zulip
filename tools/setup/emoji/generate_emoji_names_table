@@ -6,12 +6,12 @@
 # sources' decisions about what names to provide to each unicode
 # codepoint.
 import os
-import ujson
-
 from typing import Any, Dict, List
 
-from emoji_setup_utils import emoji_is_universal, get_emoji_code, EMOJISETS
+import ujson
+
 from emoji_names import EMOJI_NAME_MAPS
+from emoji_setup_utils import EMOJISETS, emoji_is_universal, get_emoji_code
 
 TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ZULIP_PATH = os.path.dirname(TOOLS_DIR)
@@ -29,18 +29,18 @@ with open(EMOJI_MAP_FILE) as fp:
     EMOJI_MAP = ujson.load(fp)
 
 EMOJI_IMAGE_TEMPLATE = """
-    <img class="emoji" src="images-%(emojiset)s-64/%(emoji_code)s.png" title=%(emojiset)s>
+    <img class="emoji" src="images-{emojiset}-64/{emoji_code}.png" title={emojiset}>
 """
 
 TABLE_ROW_TEMPLATE = """
     <tr>
-        <td class="new-sorting-info">%(sorting_info)s</td>
-        <td class="emoji-code">%(emoji_code)s</td>
-        <td class="emoji-images">%(images_html)s</td>
-        <td class="zulip-emoji-names">%(zulip_names)s</td>
-        <td class="iamcal-emoji-names">%(iamcal_names)s</td>
-        <td class="gemoji-emoji-names">%(gemoji_names)s</td>
-        <td class="unicode-name">%(unicode_name)s</td>
+        <td class="new-sorting-info">{sorting_info}</td>
+        <td class="emoji-code">{emoji_code}</td>
+        <td class="emoji-images">{images_html}</td>
+        <td class="zulip-emoji-names">{zulip_names}</td>
+        <td class="iamcal-emoji-names">{iamcal_names}</td>
+        <td class="gemoji-emoji-names">{gemoji_names}</td>
+        <td class="unicode-name">{unicode_name}</td>
     </tr>
 """
 
@@ -48,7 +48,7 @@ EMOJI_LISTING_TEMPLATE = """
 <html>
     <head>
         <style>
-            %(table_css)s
+            {table_css}
         </style>
         <title>Zulip emoji names</title>
     </head>
@@ -66,7 +66,7 @@ EMOJI_LISTING_TEMPLATE = """
                 </tr>
             </thead>
             <tbody>
-                %(tbody)s
+                {tbody}
             </tbody>
         </table>
     </body>
@@ -132,7 +132,7 @@ def generate_emoji_code_to_emoji_names_maps() -> None:
         if emoji_code in reverse_unified_reactions_map:
             reverse_unified_reactions_map[emoji_code].append(name)
         else:
-            reverse_unified_reactions_map[emoji_code] = [name, ]
+            reverse_unified_reactions_map[emoji_code] = [name]
 
     for emoji_code in reverse_unified_reactions_map:
         emoji_code_to_gemoji_names[emoji_code] = ", ".join(reverse_unified_reactions_map[emoji_code])
@@ -146,7 +146,7 @@ def generate_emoji_code_to_emoji_names_maps() -> None:
     for emoji_code in EMOJI_NAME_MAPS:
         canonical_name = EMOJI_NAME_MAPS[emoji_code]["canonical_name"]
         aliases = EMOJI_NAME_MAPS[emoji_code]["aliases"]
-        names = [canonical_name, ]
+        names = [canonical_name]
         names.extend(aliases)
         emoji_code_to_zulip_names[emoji_code] = ", ".join(names)
 
@@ -156,10 +156,10 @@ def get_sorting_info(category: str, sort_order: int) -> str:
 def get_images_html(emoji_code: str) -> str:
     images_html = ''
     for emojiset in EMOJISETS:
-        images_html += (EMOJI_IMAGE_TEMPLATE % {
-            'emoji_code': emoji_code,
-            'emojiset': emojiset,
-        })
+        images_html += EMOJI_IMAGE_TEMPLATE.format(
+            emoji_code=emoji_code,
+            emojiset=emojiset,
+        )
 
     return images_html
 
@@ -194,14 +194,13 @@ def main() -> None:
     tbody = ""
     for category in SORTED_CATEGORIES:
         for emoji_entry in emoji_collection[category]:
-            # We need to use the weird `dict(**kwargs)` format to avoid lint errors.
-            tbody += TABLE_ROW_TEMPLATE % dict(**emoji_entry)
+            tbody += TABLE_ROW_TEMPLATE.format(**emoji_entry)
 
     with open(OUTPUT_FILE, 'w') as fp:
-        fp.write(EMOJI_LISTING_TEMPLATE % {
-            'tbody': tbody,
-            'table_css': TABLE_CSS,
-        })
+        fp.write(EMOJI_LISTING_TEMPLATE.format(
+            tbody=tbody,
+            table_css=TABLE_CSS,
+        ))
 
     print("Done! Open http://localhost:9991/static/generated/emoji/emoji_names_table.html "
           "to view(after starting the dev server).")

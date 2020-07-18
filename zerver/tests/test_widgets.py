@@ -1,19 +1,20 @@
+import re
+from typing import Any, Dict
+
 import ujson
-
-from typing import Dict, Any
-
-from zerver.models import SubMessage
+from django.core.exceptions import ValidationError
 
 from zerver.lib.test_classes import ZulipTestCase
-
-from zerver.lib.widget import get_widget_data
-
 from zerver.lib.validator import check_widget_content
+from zerver.lib.widget import get_widget_data
+from zerver.models import SubMessage
+
 
 class WidgetContentTestCase(ZulipTestCase):
     def test_validation(self) -> None:
         def assert_error(obj: object, msg: str) -> None:
-            self.assertEqual(check_widget_content(obj), msg)
+            with self.assertRaisesRegex(ValidationError, re.escape(msg)):
+                check_widget_content(obj)
 
         assert_error(5,
                      'widget_content is not a dict')
@@ -59,7 +60,7 @@ class WidgetContentTestCase(ZulipTestCase):
             dict(short_name='a', long_name='foo', reply='bar'),
         ]
 
-        self.assertEqual(check_widget_content(obj), None)
+        check_widget_content(obj)
 
     def test_message_error_handling(self) -> None:
         sender = self.example_user('cordelia')
@@ -115,12 +116,12 @@ class WidgetContentTestCase(ZulipTestCase):
             choices=[],
         )
 
-        widget_content = ujson.dumps(
-            dict(
-                widget_type='zform',
-                extra_data=zform_data,
-            ),
+        widget_content = dict(
+            widget_type='zform',
+            extra_data=zform_data,
         )
+
+        check_widget_content(widget_content)
 
         payload = dict(
             type="stream",
@@ -128,7 +129,7 @@ class WidgetContentTestCase(ZulipTestCase):
             client='test suite',
             topic='whatever',
             content=content,
-            widget_content=widget_content,
+            widget_content=ujson.dumps(widget_content),
         )
         result = self.api_post(sender, "/api/v1/messages", payload)
         self.assert_json_success(result)

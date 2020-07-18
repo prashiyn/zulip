@@ -1,13 +1,12 @@
-import unittest
 import os
+import unittest
 
 import tools.lib.template_parser
-
 from tools.lib.html_branches import (
+    build_id_dict,
     get_tag_info,
     html_branches,
     html_tag_tree,
-    build_id_dict,
     split_for_id_and_class,
 )
 
@@ -50,24 +49,31 @@ class TestHtmlBranches(unittest.TestCase):
 
         tree = html_tag_tree(html)
 
+        assert tree.children[0].token is not None
         self.assertEqual(tree.children[0].token.kind, 'html_start')
         self.assertEqual(tree.children[0].token.tag, 'html')
 
+        assert tree.children[0].children[0].token is not None
         self.assertEqual(tree.children[0].children[0].token.kind, 'html_start')
         self.assertEqual(tree.children[0].children[0].token.tag, 'head')
 
+        assert tree.children[0].children[0].children[0].token is not None
         self.assertEqual(tree.children[0].children[0].children[0].token.kind, 'html_start')
         self.assertEqual(tree.children[0].children[0].children[0].token.tag, 'title')
 
+        assert tree.children[0].children[1].token is not None
         self.assertEqual(tree.children[0].children[1].token.kind, 'html_start')
         self.assertEqual(tree.children[0].children[1].token.tag, 'body')
 
+        assert tree.children[0].children[1].children[0].token is not None
         self.assertEqual(tree.children[0].children[1].children[0].token.kind, 'html_start')
         self.assertEqual(tree.children[0].children[1].children[0].token.tag, 'p')
 
+        assert tree.children[0].children[1].children[0].children[0].token is not None
         self.assertEqual(tree.children[0].children[1].children[0].children[0].token.kind, 'html_singleton')
         self.assertEqual(tree.children[0].children[1].children[0].children[0].token.tag, 'br')
 
+        assert tree.children[0].children[1].children[1].token is not None
         self.assertEqual(tree.children[0].children[1].children[1].token.kind, 'html_start')
         self.assertEqual(tree.children[0].children[1].children[1].token.tag, 'p')
 
@@ -108,14 +114,14 @@ class TestHtmlBranches(unittest.TestCase):
 
         self.assertEqual(set(template_id_dict.keys()), {'below_navbar', 'hello_{{ message }}', 'intro'})
         self.assertEqual(template_id_dict['hello_{{ message }}'], [
-                         'Line 12:%s/tools/tests/test_template_data/test_template1.html' % (ZULIP_PATH,),
-                         'Line 12:%s/tools/tests/test_template_data/test_template2.html' % (ZULIP_PATH,)])
+                         f'Line 12:{ZULIP_PATH}/tools/tests/test_template_data/test_template1.html',
+                         f'Line 12:{ZULIP_PATH}/tools/tests/test_template_data/test_template2.html'])
         self.assertEqual(template_id_dict['intro'], [
-                         'Line 10:%s/tools/tests/test_template_data/test_template1.html' % (ZULIP_PATH,),
-                         'Line 11:%s/tools/tests/test_template_data/test_template1.html' % (ZULIP_PATH,),
-                         'Line 11:%s/tools/tests/test_template_data/test_template2.html' % (ZULIP_PATH,)])
+                         f'Line 10:{ZULIP_PATH}/tools/tests/test_template_data/test_template1.html',
+                         f'Line 11:{ZULIP_PATH}/tools/tests/test_template_data/test_template1.html',
+                         f'Line 11:{ZULIP_PATH}/tools/tests/test_template_data/test_template2.html'])
         self.assertEqual(template_id_dict['below_navbar'], [
-                         'Line 10:%s/tools/tests/test_template_data/test_template2.html' % (ZULIP_PATH,)])
+                         f'Line 10:{ZULIP_PATH}/tools/tests/test_template_data/test_template2.html'])
 
     def test_split_for_id_and_class(self) -> None:
         id1 = "{{ red|blue }}"

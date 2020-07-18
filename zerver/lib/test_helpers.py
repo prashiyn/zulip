@@ -1,56 +1,66 @@
+import collections
+import os
+import re
+import sys
+import time
 from contextlib import contextmanager
 from typing import (
-    Any, Callable, Dict, Generator, Iterable, Iterator, List, Mapping,
-    Optional, Tuple, Union, IO, TypeVar, TYPE_CHECKING
+    IO,
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
 )
+from unittest import mock
 
-from django.urls import URLResolver
+import boto3
+import fakeldap
+import ldap
+import ujson
+from boto3.resources.base import ServiceResource
 from django.conf import settings
-from django.test import override_settings
-from django.http import HttpResponse, HttpResponseRedirect
 from django.db.migrations.state import StateApps
-from boto.s3.connection import S3Connection
-from boto.s3.bucket import Bucket
+from django.http import HttpResponse, HttpResponseRedirect
+from django.test import override_settings
+from django.urls import URLResolver
+from moto import mock_s3
 
 import zerver.lib.upload
+from zerver.lib import cache
 from zerver.lib.actions import do_set_realm_property
-from zerver.lib.upload import S3UploadBackend, LocalUploadBackend
 from zerver.lib.avatar import avatar_url
 from zerver.lib.cache import get_cache_backend
-from zerver.lib.db import TimeTrackingCursor
-from zerver.lib import cache
-from zerver.tornado import event_queue
-from zerver.tornado.handlers import allocate_handler_id
-from zerver.worker import queue_processors
+from zerver.lib.db import Params, ParamsT, Query, TimeTrackingCursor
 from zerver.lib.integrations import WEBHOOK_INTEGRATIONS
-from zerver.views.auth import get_login_data
-
+from zerver.lib.upload import LocalUploadBackend, S3UploadBackend
 from zerver.models import (
-    get_realm,
-    get_stream,
     Client,
     Message,
     Realm,
     Subscription,
     UserMessage,
     UserProfile,
+    get_realm,
+    get_stream,
 )
+from zerver.tornado import event_queue
+from zerver.tornado.handlers import AsyncDjangoHandler, allocate_handler_id
+from zerver.worker import queue_processors
+from zproject.backends import ExternalAuthDataDict, ExternalAuthResult
 
 if TYPE_CHECKING:
     # Avoid an import cycle; we only need these for type annotations.
-    from zerver.lib.test_classes import ZulipTestCase, MigrationsTestCase
+    from zerver.lib.test_classes import MigrationsTestCase, ZulipTestCase
 
-import collections
-import mock
-import os
-import re
-import sys
-import time
-import ujson
-from moto import mock_s3_deprecated
-
-import fakeldap
-import ldap
 
 class MockLDAP(fakeldap.MockLDAP):
     class LDAPError(ldap.LDAPError):
@@ -75,10 +85,8 @@ def stub_event_queue_user_events(event_queue_return: Any, user_events_return: An
 
 @contextmanager
 def simulated_queue_client(client: Callable[..., Any]) -> Iterator[None]:
-    real_SimpleQueueClient = queue_processors.SimpleQueueClient
-    queue_processors.SimpleQueueClient = client  # type: ignore[assignment, misc] # https://github.com/JukkaL/mypy/issues/1152
-    yield
-    queue_processors.SimpleQueueClient = real_SimpleQueueClient  # type: ignore[misc] # https://github.com/JukkaL/mypy/issues/1152
+    with mock.patch.object(queue_processors, 'SimpleQueueClient', client):
+        yield
 
 @contextmanager
 def tornado_redirected_to_list(lst: List[Mapping[str, Any]]) -> Iterator[None]:
@@ -115,9 +123,8 @@ def capture_event(event_info: EventInfo) -> Iterator[None]:
     event_info.populate(m.call_args_list)
 
 @contextmanager
-def simulated_empty_cache() -> Generator[
-        List[Tuple[str, Union[str, List[str]], str]], None, None]:
-    cache_queries: List[Tuple[str, Union[str, List[str]], str]] = []
+def simulated_empty_cache() -> Iterator[List[Tuple[str, Union[str, List[str]], Optional[str]]]]:
+    cache_queries: List[Tuple[str, Union[str, List[str]], Optional[str]]] = []
 
     def my_cache_get(key: str, cache_name: Optional[str]=None) -> Optional[Dict[str, Any]]:
         cache_queries.append(('get', key, cache_name))
@@ -136,7 +143,7 @@ def simulated_empty_cache() -> Generator[
     cache.cache_get_many = old_get_many
 
 @contextmanager
-def queries_captured(include_savepoints: Optional[bool]=False) -> Generator[
+def queries_captured(include_savepoints: bool=False) -> Generator[
         List[Dict[str, Union[str, bytes]]], None, None]:
     '''
     Allow a user to capture just the queries executed during
@@ -146,9 +153,9 @@ def queries_captured(include_savepoints: Optional[bool]=False) -> Generator[
     queries: List[Dict[str, Union[str, bytes]]] = []
 
     def wrapper_execute(self: TimeTrackingCursor,
-                        action: Callable[[str, Iterable[Any]], None],
-                        sql: str,
-                        params: Iterable[Any]=()) -> None:
+                        action: Callable[[str, ParamsT], None],
+                        sql: Query,
+                        params: ParamsT) -> None:
         cache = get_cache_backend(None)
         cache.clear()
         start = time.time()
@@ -157,29 +164,22 @@ def queries_captured(include_savepoints: Optional[bool]=False) -> Generator[
         finally:
             stop = time.time()
             duration = stop - start
-            if include_savepoints or ('SAVEPOINT' not in sql):
+            if include_savepoints or not isinstance(sql, str) or 'SAVEPOINT' not in sql:
                 queries.append({
                     'sql': self.mogrify(sql, params).decode('utf-8'),
-                    'time': "%.3f" % (duration,),
+                    'time': f"{duration:.3f}",
                 })
 
-    old_execute = TimeTrackingCursor.execute
-    old_executemany = TimeTrackingCursor.executemany
-
-    def cursor_execute(self: TimeTrackingCursor, sql: str,
-                       params: Iterable[Any]=()) -> None:
+    def cursor_execute(self: TimeTrackingCursor, sql: Query,
+                       params: Optional[Params]=None) -> None:
         return wrapper_execute(self, super(TimeTrackingCursor, self).execute, sql, params)
-    TimeTrackingCursor.execute = cursor_execute  # type: ignore[assignment] # https://github.com/JukkaL/mypy/issues/1167
 
-    def cursor_executemany(self: TimeTrackingCursor, sql: str,
-                           params: Iterable[Any]=()) -> None:
+    def cursor_executemany(self: TimeTrackingCursor, sql: Query,
+                           params: Iterable[Params]) -> None:
         return wrapper_execute(self, super(TimeTrackingCursor, self).executemany, sql, params)  # nocoverage -- doesn't actually get used in tests
-    TimeTrackingCursor.executemany = cursor_executemany  # type: ignore[assignment] # https://github.com/JukkaL/mypy/issues/1167
 
-    yield queries
-
-    TimeTrackingCursor.execute = old_execute  # type: ignore[assignment] # https://github.com/JukkaL/mypy/issues/1167
-    TimeTrackingCursor.executemany = old_executemany  # type: ignore[assignment] # https://github.com/JukkaL/mypy/issues/1167
+    with mock.patch.multiple(TimeTrackingCursor, execute=cursor_execute, executemany=cursor_executemany):
+        yield queries
 
 @contextmanager
 def stdout_suppressed() -> Iterator[IO[str]]:
@@ -201,6 +201,7 @@ def get_test_image_file(filename: str) -> IO[Any]:
 
 def avatar_disk_path(user_profile: UserProfile, medium: bool=False, original: bool=False) -> str:
     avatar_url_path = avatar_url(user_profile, medium)
+    assert avatar_url_path is not None
     avatar_disk_path = os.path.join(settings.LOCAL_UPLOADS_DIR, "avatars",
                                     avatar_url_path.split("/")[-2],
                                     avatar_url_path.split("/")[-1].split("?")[0])
@@ -217,7 +218,10 @@ def find_key_by_email(address: str) -> Optional[str]:
     key_regex = re.compile("accounts/do_confirm/([a-z0-9]{24})>")
     for message in reversed(outbox):
         if address in message.to:
-            return key_regex.search(message.body).groups()[0]
+            match = key_regex.search(message.body)
+            assert match is not None
+            [key] = match.groups()
+            return key
     return None  # nocoverage -- in theory a test might want this case, but none do
 
 def message_stream_count(user_profile: UserProfile) -> int:
@@ -250,9 +254,9 @@ def get_user_messages(user_profile: UserProfile) -> List[Message]:
         order_by('message')
     return [um.message for um in query]
 
-class DummyHandler:
+class DummyHandler(AsyncDjangoHandler):
     def __init__(self) -> None:
-        allocate_handler_id(self)  # type: ignore[arg-type] # this is a testing mock
+        allocate_handler_id(self)
 
 class POSTRequestMock:
     method = "POST"
@@ -278,7 +282,7 @@ class HostRequestMock:
     """A mock request object where get_host() works.  Useful for testing
     routes that use Zulip's subdomains feature"""
 
-    def __init__(self, user_profile: UserProfile=None, host: str=settings.EXTERNAL_HOST) -> None:
+    def __init__(self, user_profile: Optional[UserProfile]=None, host: str=settings.EXTERNAL_HOST) -> None:
         self.host = host
         self.GET: Dict[str, Any] = {}
         self.POST: Dict[str, Any] = {}
@@ -399,7 +403,7 @@ def write_instrumentation_reports(full_suite: bool, include_webhooks: bool) -> N
         find_patterns(v1_api_and_json_patterns, ['api/v1/', 'json/'])
 
         assert len(pattern_cnt) > 100
-        untested_patterns = {p for p in pattern_cnt if pattern_cnt[p] == 0}
+        untested_patterns = {p.replace("\\", "") for p in pattern_cnt if pattern_cnt[p] == 0}
 
         exempt_patterns = set([
             # We exempt some patterns that are called via Tornado.
@@ -409,10 +413,10 @@ def write_instrumentation_reports(full_suite: bool, include_webhooks: bool) -> N
             # We also exempt some development environment debugging
             # static content URLs, since the content they point to may
             # or may not exist.
-            'coverage/(?P<path>.*)',
-            'node-coverage/(?P<path>.*)',
-            'docs/(?P<path>.*)',
-            'casper/(?P<path>.*)',
+            'coverage/(?P<path>.+)',
+            'node-coverage/(?P<path>.+)',
+            'docs/(?P<path>.+)',
+            'casper/(?P<path>.+)',
             'static/(?P<path>.*)',
         ] + [webhook.url for webhook in WEBHOOK_INTEGRATIONS if not include_webhooks])
 
@@ -436,26 +440,26 @@ def write_instrumentation_reports(full_suite: bool, include_webhooks: bool) -> N
                     print(call)
 
         if full_suite:
-            print('INFO: URL coverage report is in %s' % (fn,))
+            print(f'INFO: URL coverage report is in {fn}')
             print('INFO: Try running: ./tools/create-test-api-docs')
 
         if full_suite and len(untested_patterns):  # nocoverage -- test suite error handling
             print("\nERROR: Some URLs are untested!  Here's the list of untested URLs:")
             for untested_pattern in sorted(untested_patterns):
-                print("   %s" % (untested_pattern,))
+                print(f"   {untested_pattern}")
             sys.exit(1)
 
-def load_subdomain_token(response: HttpResponse) -> Dict[str, Any]:
+def load_subdomain_token(response: HttpResponse) -> ExternalAuthDataDict:
     assert isinstance(response, HttpResponseRedirect)
     token = response.url.rsplit('/', 1)[1]
-    data = get_login_data(token, should_delete=False)
+    data = ExternalAuthResult(login_token=token, delete_stored_data=False).data_dict
     assert data is not None
     return data
 
 FuncT = TypeVar('FuncT', bound=Callable[..., None])
 
 def use_s3_backend(method: FuncT) -> FuncT:
-    @mock_s3_deprecated
+    @mock_s3
     @override_settings(LOCAL_UPLOADS_DIR=None)
     def new_method(*args: Any, **kwargs: Any) -> Any:
         zerver.lib.upload.upload_backend = S3UploadBackend()
@@ -465,9 +469,10 @@ def use_s3_backend(method: FuncT) -> FuncT:
             zerver.lib.upload.upload_backend = LocalUploadBackend()
     return new_method
 
-def create_s3_buckets(*bucket_names: Tuple[str]) -> List[Bucket]:
-    conn = S3Connection(settings.S3_KEY, settings.S3_SECRET_KEY)
-    buckets = [conn.create_bucket(name) for name in bucket_names]
+def create_s3_buckets(*bucket_names: Tuple[str]) -> List[ServiceResource]:
+    session = boto3.Session(settings.S3_KEY, settings.S3_SECRET_KEY)
+    s3 = session.resource('s3')
+    buckets = [s3.create_bucket(Bucket=name) for name in bucket_names]
     return buckets
 
 def use_db_models(method: Callable[..., None]) -> Callable[..., None]:  # nocoverage
@@ -553,7 +558,7 @@ def use_db_models(method: Callable[..., None]) -> Callable[..., None]:  # nocove
             UserHotspot=UserHotspot,
             UserMessage=UserMessage,
             UserPresence=UserPresence,
-            UserProfile=UserProfile
+            UserProfile=UserProfile,
         )
         zerver_test_helpers_patch = mock.patch.multiple(
             'zerver.lib.test_helpers',
@@ -586,3 +591,10 @@ def create_dummy_file(filename: str) -> str:
     with open(filepath, 'w') as f:
         f.write('zulip!')
     return filepath
+
+def zulip_reaction_info() -> Dict[str, str]:
+    return dict(
+        emoji_name='zulip',
+        emoji_code='zulip',
+        reaction_type='zulip_extra_emoji',
+    )

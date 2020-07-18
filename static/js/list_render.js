@@ -4,29 +4,67 @@ const DEFAULTS = {
     instances: new Map(),
 };
 
-exports.filter = (value, list, opts) => {
+// ----------------------------------------------------
+// This function describes (programatically) how to use
+// the list_render widget.
+// ----------------------------------------------------
+
+exports.validate_opts = (opts) => {
+    if (opts.html_selector && typeof opts.html_selector !== "function") {
+        // We have an html_selector, but it is not a function.
+        // This is a programming error.
+        blueslip.error("html_selector should be a function.");
+        return false;
+    }
+    if (!opts.simplebar_container) {
+        blueslip.error("simplebar_container is missing.");
+        return false;
+    }
+    return true;
+};
+
+exports.get_filtered_items = (value, list, opts) => {
     /*
         This is used by the main object (see `create`),
         but we split it out to make it a bit easier
         to test.
     */
+    const get_item = opts.get_item;
+
     if (!opts.filter) {
+        if (get_item) {
+            return list.map(get_item);
+        }
         return [...list];
     }
 
     if (opts.filter.filterer) {
+        if (get_item) {
+            return opts.filter.filterer(list.map(get_item), value);
+        }
         return opts.filter.filterer(list, value);
     }
 
-    const predicate = opts.filter.predicate;
+    const predicate = (item) => opts.filter.predicate(item, value);
 
-    return list.filter(function (item) {
-        return predicate(item, value);
-    });
+    if (get_item) {
+        const result = [];
+
+        for (const key of list) {
+            const item = get_item(key);
+            if (predicate(item)) {
+                result.push(item);
+            }
+        }
+
+        return result;
+    }
+
+    return list.filter(predicate);
 };
 
-exports.alphabetic_sort = (prop) => {
-    return function (a, b) {
+exports.alphabetic_sort = (prop) =>
+    function (a, b) {
         // The conversion to uppercase helps make the sorting case insensitive.
         const str1 = a[prop].toUpperCase();
         const str2 = b[prop].toUpperCase();
@@ -39,10 +77,9 @@ exports.alphabetic_sort = (prop) => {
 
         return -1;
     };
-};
 
-exports.numeric_sort = (prop) => {
-    return function (a, b) {
+exports.numeric_sort = (prop) =>
+    function (a, b) {
         if (parseFloat(a[prop]) > parseFloat(b[prop])) {
             return 1;
         } else if (parseFloat(a[prop]) === parseFloat(b[prop])) {
@@ -51,24 +88,23 @@ exports.numeric_sort = (prop) => {
 
         return -1;
     };
-};
 
 exports.valid_filter_opts = (opts) => {
     if (!opts.filter) {
         return true;
     }
     if (opts.filter.predicate) {
-        if (typeof opts.filter.predicate !== 'function') {
-            blueslip.error('Filter predicate is not a function.');
+        if (typeof opts.filter.predicate !== "function") {
+            blueslip.error("Filter predicate is not a function.");
             return false;
         }
         if (opts.filter.filterer) {
-            blueslip.error('Filterer and predicate are mutually exclusive.');
+            blueslip.error("Filterer and predicate are mutually exclusive.");
             return false;
         }
     } else {
-        if (typeof opts.filter.filterer !== 'function') {
-            blueslip.error('Filter filterer is not a function (or missing).');
+        if (typeof opts.filter.filterer !== "function") {
+            blueslip.error("Filter filterer is not a function (or missing).");
             return false;
         }
     }
@@ -82,7 +118,11 @@ exports.valid_filter_opts = (opts) => {
 // opts: An object of random preferences.
 exports.create = function ($container, list, opts) {
     if (!opts) {
-        blueslip.error('Need opts to create widget.');
+        blueslip.error("Need opts to create widget.");
+        return;
+    }
+
+    if (!exports.validate_opts(opts)) {
         return;
     }
 
@@ -103,26 +143,25 @@ exports.create = function ($container, list, opts) {
         list: list,
         filtered_list: list,
         reverse_mode: false,
-        filter_value: '',
+        filter_value: "",
     };
 
     if (!exports.valid_filter_opts(opts)) {
         return;
     }
 
+    if (opts.get_item && typeof opts.get_item !== "function") {
+        blueslip.error("get_item should be a function");
+        return;
+    }
+
     const widget = {};
 
     widget.filter_and_sort = function () {
-        meta.filtered_list = exports.filter(
-            meta.filter_value,
-            meta.list,
-            opts
-        );
+        meta.filtered_list = exports.get_filtered_items(meta.filter_value, meta.list, opts);
 
         if (meta.sorting_function) {
-            meta.filtered_list.sort(
-                meta.sorting_function
-            );
+            meta.filtered_list.sort(meta.sorting_function);
         }
 
         if (meta.reverse_mode) {
@@ -143,13 +182,13 @@ exports.create = function ($container, list, opts) {
 
         const slice = meta.filtered_list.slice(meta.offset, meta.offset + load_count);
 
-        const finish = blueslip.start_timing('list_render ' + opts.name);
+        const finish = blueslip.start_timing("list_render " + opts.name);
         let html = "";
         for (const item of slice) {
             const s = opts.modifier(item);
 
-            if (typeof s !== 'string') {
-                blueslip.error('List item is not a string: ' + s);
+            if (typeof s !== "string") {
+                blueslip.error("List item is not a string: " + s);
                 continue;
             }
 
@@ -163,6 +202,32 @@ exports.create = function ($container, list, opts) {
 
         $container.append($(html));
         meta.offset += load_count;
+    };
+
+    widget.render_item = (item) => {
+        if (!opts.html_selector) {
+            // We don't have any way to find the existing item.
+            return;
+        }
+        const html_item = meta.scroll_container.find(opts.html_selector(item));
+        if (!html_item) {
+            // We don't have the item in the current scroll container; it'll be
+            // rendered with updated data when it is scrolled to.
+            return;
+        }
+
+        if (opts.get_item) {
+            item = opts.get_item(item);
+        }
+        const html = opts.modifier(item);
+        if (typeof html !== "string") {
+            blueslip.error("List item is not a string: " + html);
+            return;
+        }
+
+        // At this point, we have asserted we have all the information to replace
+        // the html now.
+        html_item.replaceWith(html);
     };
 
     widget.clear = function () {
@@ -195,24 +260,24 @@ exports.create = function ($container, list, opts) {
     };
 
     widget.set_up_event_handlers = function () {
-        meta.scroll_container = scroll_util.get_list_scrolling_container($container);
+        meta.scroll_container = ui.get_scroll_element(opts.simplebar_container);
 
         // on scroll of the nearest scrolling container, if it hits the bottom
         // of the container then fetch a new block of items and render them.
-        meta.scroll_container.on('scroll.list_widget_container', function () {
+        meta.scroll_container.on("scroll.list_widget_container", function () {
             if (this.scrollHeight - (this.scrollTop + this.clientHeight) < 10) {
                 widget.render();
             }
         });
 
         if (opts.parent_container) {
-            opts.parent_container.on('click.list_widget_sort', "[data-sort]", function () {
+            opts.parent_container.on("click.list_widget_sort", "[data-sort]", function () {
                 exports.handle_sort($(this), widget);
             });
         }
 
         if (opts.filter && opts.filter.element) {
-            opts.filter.element.on('input.list_widget_filter', function () {
+            opts.filter.element.on("input.list_widget_filter", function () {
                 const value = this.value.toLocaleLowerCase();
                 widget.set_filter_value(value);
                 widget.hard_redraw();
@@ -221,14 +286,14 @@ exports.create = function ($container, list, opts) {
     };
 
     widget.clear_event_handlers = function () {
-        meta.scroll_container.off('scroll.list_widget_container');
+        meta.scroll_container.off("scroll.list_widget_container");
 
         if (opts.parent_container) {
-            opts.parent_container.off('click.list_widget_sort', "[data-sort]");
+            opts.parent_container.off("click.list_widget_sort", "[data-sort]");
         }
 
         if (opts.filter && opts.filter.element) {
-            opts.filter.element.off('input.list_widget_filter');
+            opts.filter.element.off("input.list_widget_filter");
         }
     };
 

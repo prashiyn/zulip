@@ -8,7 +8,7 @@ class zulip_ops::app_frontend {
     'autossh',
   ]
   package { $app_packages: ensure => 'installed' }
-  $hosts_domain = zulipconf('nagios', 'hosts_domain', undef)
+  $default_host_domain = zulipconf('nagios', 'default_host_domain', undef)
 
   file { '/etc/logrotate.d/zulip':
     ensure => file,
@@ -68,4 +68,16 @@ class zulip_ops::app_frontend {
     mode   => '0644',
     source => 'puppet:///modules/zulip_ops/cron.d/fetch-contributor-data',
   }
+
+  # Enable some munin plugins
+  $munin_plugins = [
+    'rabbitmq_connections',
+    'rabbitmq_consumers',
+    'rabbitmq_messages',
+    'rabbitmq_messages_unacknowledged',
+    'rabbitmq_messages_uncommitted',
+    'rabbitmq_queue_memory',
+    'zulip_send_receive_timing',
+  ]
+  zulip_ops::munin_plugin { $munin_plugins: }
 }

@@ -4,29 +4,28 @@
 
 const noop = function () {};
 
-set_global('Filter', noop);
+set_global("Filter", noop);
 global.stub_out_jquery();
-set_global('document', null);
+set_global("document", null);
+set_global("current_msg_list", {});
 
-zrequire('FetchStatus', 'js/fetch_status');
-zrequire('muting');
-zrequire('MessageListData', 'js/message_list_data');
-zrequire('MessageListView', 'js/message_list_view');
-const MessageList = zrequire('message_list').MessageList;
+zrequire("FetchStatus", "js/fetch_status");
+zrequire("muting");
+zrequire("MessageListData", "js/message_list_data");
+zrequire("MessageListView", "js/message_list_view");
+const MessageList = zrequire("message_list").MessageList;
 
 const with_overrides = global.with_overrides; // make lint happy
 
 function accept_all_filter() {
     const filter = {
-        predicate: () => {
-            return () => true;
-        },
+        predicate: () => () => true,
     };
 
     return filter;
 }
 
-run_test('basics', () => {
+run_test("basics", () => {
     const filter = accept_all_filter();
 
     const list = new MessageList({
@@ -36,7 +35,7 @@ run_test('basics', () => {
     const messages = [
         {
             id: 50,
-            content: 'fifty',
+            content: "fifty",
         },
         {
             id: 60,
@@ -58,7 +57,7 @@ run_test('basics', () => {
     assert.equal(list.first().id, 50);
     assert.equal(list.last().id, 80);
 
-    assert.equal(list.get(50).content, 'fifty');
+    assert.equal(list.get(50).content, "fifty");
 
     assert.equal(list.closest_id(49), 50);
     assert.equal(list.closest_id(50), 50);
@@ -70,7 +69,7 @@ run_test('basics', () => {
     assert.deepEqual(list.all_messages(), messages);
 
     global.$.Event = function (ev) {
-        assert.equal(ev, 'message_selected.zulip');
+        assert.equal(ev, "message_selected.zulip");
     };
     list.select_id(50);
 
@@ -113,16 +112,14 @@ run_test('basics', () => {
     list.view.clear_table = function () {};
 
     list.remove_and_rerender([{id: 60}]);
-    const removed = list.all_messages().filter(function (msg) {
-        return msg.id !== 60;
-    });
+    const removed = list.all_messages().filter((msg) => msg.id !== 60);
     assert.deepEqual(list.all_messages(), removed);
 
     list.clear();
     assert.deepEqual(list.all_messages(), []);
 });
 
-run_test('prev_next', () => {
+run_test("prev_next", () => {
     const list = new MessageList({});
 
     assert.equal(list.prev(), undefined);
@@ -161,7 +158,7 @@ run_test('prev_next', () => {
     assert.equal(list.is_at_end(), true);
 });
 
-run_test('message_range', () => {
+run_test("message_range", () => {
     const list = new MessageList({});
 
     const messages = [{id: 30}, {id: 40}, {id: 50}, {id: 60}];
@@ -171,11 +168,11 @@ run_test('message_range', () => {
     assert.deepEqual(list.message_range(30, 40), [{id: 30}, {id: 40}]);
     assert.deepEqual(list.message_range(31, 39), [{id: 40}]);
     assert.deepEqual(list.message_range(31, 1000), [{id: 40}, {id: 50}, {id: 60}]);
-    blueslip.expect('error', 'message_range given a start of -1');
+    blueslip.expect("error", "message_range given a start of -1");
     assert.deepEqual(list.message_range(-1, 40), [{id: 30}, {id: 40}]);
 });
 
-run_test('updates', () => {
+run_test("updates", () => {
     const list = new MessageList({});
     list.view.rerender_preserving_scrolltop = noop;
 
@@ -212,7 +209,7 @@ run_test('updates', () => {
     assert.equal(list.get(1).stream, "denmark");
 });
 
-run_test('nth_most_recent_id', () => {
+run_test("nth_most_recent_id", () => {
     const list = new MessageList({});
     list.append([{id: 10}, {id: 20}, {id: 30}]);
     assert.equal(list.nth_most_recent_id(1), 30);
@@ -221,9 +218,12 @@ run_test('nth_most_recent_id', () => {
     assert.equal(list.nth_most_recent_id(4), -1);
 });
 
-run_test('change_message_id', () => {
+run_test("change_message_id", () => {
     const list = new MessageList({});
-    list.data._add_to_hash([{id: 10.5, content: "good job"}, {id: 20.5, content: "ok!"}]);
+    list.data._add_to_hash([
+        {id: 10.5, content: "good job"},
+        {id: 20.5, content: "ok!"},
+    ]);
 
     // local to local
     list.change_message_id(10.5, 11.5);
@@ -239,7 +239,7 @@ run_test('change_message_id', () => {
     assert.equal(list.change_message_id(13, 15), undefined);
 });
 
-run_test('last_sent_by_me', () => {
+run_test("last_sent_by_me", () => {
     const list = new MessageList({});
     const items = [
         {
@@ -262,10 +262,18 @@ run_test('last_sent_by_me', () => {
     assert.equal(list.get_last_message_sent_by_me().id, 2);
 });
 
-run_test('local_echo', () => {
+run_test("local_echo", () => {
     let list = new MessageList({});
-    list.append([{id: 10}, {id: 20}, {id: 30}, {id: 20.02},
-                 {id: 20.03}, {id: 40}, {id: 50}, {id: 60}]);
+    list.append([
+        {id: 10},
+        {id: 20},
+        {id: 30},
+        {id: 20.02},
+        {id: 20.03},
+        {id: 40},
+        {id: 50},
+        {id: 60},
+    ]);
     list._local_only = {20.02: {id: 20.02}, 20.03: {id: 20.03}};
 
     assert.equal(list.closest_id(10), 10);
@@ -287,10 +295,23 @@ run_test('local_echo', () => {
 
     list = new MessageList({});
     list.append([
-        {id: 10}, {id: 20}, {id: 30}, {id: 20.02}, {id: 20.03}, {id: 40},
-        {id: 50}, {id: 50.01}, {id: 50.02}, {id: 60}]);
-    list._local_only = {20.02: {id: 20.02}, 20.03: {id: 20.03},
-                        50.01: {id: 50.01}, 50.02: {id: 50.02}};
+        {id: 10},
+        {id: 20},
+        {id: 30},
+        {id: 20.02},
+        {id: 20.03},
+        {id: 40},
+        {id: 50},
+        {id: 50.01},
+        {id: 50.02},
+        {id: 60},
+    ]);
+    list._local_only = {
+        20.02: {id: 20.02},
+        20.03: {id: 20.03},
+        50.01: {id: 50.01},
+        50.02: {id: 50.02},
+    };
 
     assert.equal(list.closest_id(10), 10);
     assert.equal(list.closest_id(20), 20);
@@ -311,26 +332,22 @@ run_test('local_echo', () => {
     assert.equal(list.closest_id(50.01), 50.01);
 });
 
-run_test('bookend', () => {
+run_test("bookend", () => {
     const list = new MessageList({});
 
-    with_overrides(function (override) {
+    with_overrides((override) => {
         let expected = "translated: You subscribed to stream IceCream";
         list.view.clear_trailing_bookend = noop;
         list.narrowed = true;
 
-        override("narrow_state.stream", function () {
-            return "IceCream";
-        });
+        override("narrow_state.stream", () => "IceCream");
 
-        override("stream_data.is_subscribed", function () {
-            return true;
-        });
+        override("stream_data.is_subscribed", () => true);
 
-        global.with_stub(function (stub) {
+        global.with_stub((stub) => {
             list.view.render_trailing_bookend = stub.f;
             list.update_trailing_bookend();
-            const bookend = stub.get_args('content', 'subscribed', 'show_button');
+            const bookend = stub.get_args("content", "subscribed", "show_button");
             assert.equal(bookend.content, expected);
             assert.equal(bookend.subscribed, true);
             assert.equal(bookend.show_button, true);
@@ -338,18 +355,14 @@ run_test('bookend', () => {
 
         expected = "translated: You unsubscribed from stream IceCream";
         list.last_message_historical = false;
-        override("stream_data.is_subscribed", function () {
-            return false;
-        });
+        override("stream_data.is_subscribed", () => false);
 
-        override("stream_data.get_sub", function () {
-            return {invite_only: false};
-        });
+        override("stream_data.get_sub", () => ({invite_only: false}));
 
-        global.with_stub(function (stub) {
+        global.with_stub((stub) => {
             list.view.render_trailing_bookend = stub.f;
             list.update_trailing_bookend();
-            const bookend = stub.get_args('content', 'subscribed', 'show_button');
+            const bookend = stub.get_args("content", "subscribed", "show_button");
             assert.equal(bookend.content, expected);
             assert.equal(bookend.subscribed, false);
             assert.equal(bookend.show_button, true);
@@ -357,18 +370,14 @@ run_test('bookend', () => {
 
         // Test when the stream is privates (invite only)
         expected = "translated: You unsubscribed from stream IceCream";
-        override("stream_data.is_subscribed", function () {
-            return false;
-        });
+        override("stream_data.is_subscribed", () => false);
 
-        override("stream_data.get_sub", function () {
-            return {invite_only: true};
-        });
+        override("stream_data.get_sub", () => ({invite_only: true}));
 
-        global.with_stub(function (stub) {
+        global.with_stub((stub) => {
             list.view.render_trailing_bookend = stub.f;
             list.update_trailing_bookend();
-            const bookend = stub.get_args('content', 'subscribed', 'show_button');
+            const bookend = stub.get_args("content", "subscribed", "show_button");
             assert.equal(bookend.content, expected);
             assert.equal(bookend.subscribed, false);
             assert.equal(bookend.show_button, false);
@@ -377,10 +386,10 @@ run_test('bookend', () => {
         expected = "translated: You are not subscribed to stream IceCream";
         list.last_message_historical = true;
 
-        global.with_stub(function (stub) {
+        global.with_stub((stub) => {
             list.view.render_trailing_bookend = stub.f;
             list.update_trailing_bookend();
-            const bookend = stub.get_args('content', 'subscribed', 'show_button');
+            const bookend = stub.get_args("content", "subscribed", "show_button");
             assert.equal(bookend.content, expected);
             assert.equal(bookend.subscribed, false);
             assert.equal(bookend.show_button, true);
@@ -388,7 +397,7 @@ run_test('bookend', () => {
     });
 });
 
-run_test('unmuted_messages', () => {
+run_test("unmuted_messages", () => {
     const list = new MessageList({});
 
     const muted_stream_id = 999;
@@ -398,13 +407,13 @@ run_test('unmuted_messages', () => {
             id: 50,
             stream_id: muted_stream_id,
             mentioned: true, // overrides mute
-            topic: 'whatever',
+            topic: "whatever",
         },
         {
             id: 60,
             stream_id: 42,
             mentioned: false,
-            topic: 'whatever',
+            topic: "whatever",
         },
     ];
     const muted = [
@@ -412,14 +421,12 @@ run_test('unmuted_messages', () => {
             id: 70,
             stream_id: muted_stream_id,
             mentioned: false,
-            topic: 'whatever',
+            topic: "whatever",
         },
     ];
 
-    with_overrides(function (override) {
-        override('muting.is_topic_muted', function (stream_id) {
-            return stream_id === muted_stream_id;
-        });
+    with_overrides((override) => {
+        override("muting.is_topic_muted", (stream_id) => stream_id === muted_stream_id);
 
         // Make sure unmuted_message filters out the "muted" entry,
         // which we mark as having a muted topic, and not mentioned.
@@ -428,18 +435,20 @@ run_test('unmuted_messages', () => {
     });
 });
 
-run_test('add_remove_rerender', () => {
+run_test("add_remove_rerender", () => {
     const filter = accept_all_filter();
 
     const list = new MessageList({filter: filter});
 
     const messages = [{id: 1}, {id: 2}, {id: 3}];
 
-    list.data.unmuted_messages = function (msgs) { return msgs; };
+    list.data.unmuted_messages = function (msgs) {
+        return msgs;
+    };
     list.add_messages(messages);
     assert.equal(list.num_items(), 3);
 
-    global.with_stub(function (stub) {
+    global.with_stub((stub) => {
         list.rerender = stub.f;
         list.remove_and_rerender(messages);
         assert.equal(stub.num_calls, 1);

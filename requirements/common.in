@@ -5,14 +5,18 @@
 # Django itself
 Django==2.2.*
 
-# needed for Deque (in Python < 3.5.4) and TypedDict
+# needed for Literal, TypedDict
 typing-extensions
+
+# Backport of @dataclass
+dataclasses;python_version<"3.7"
 
 # Needed for rendering backend templates
 Jinja2
 
 # Needed for markdown processing
 Markdown
+importlib-metadata;python_version<"3.8"  # for Markdown
 Pygments
 hyperlink
 jsx-lexer
@@ -30,7 +34,7 @@ SQLAlchemy
 argon2-cffi
 
 # Needed for S3 file uploads
-boto
+boto3
 
 # Needed for integrations
 defusedxml
@@ -68,9 +72,6 @@ PyJWT
 # Needed for including other markdown files for user docs
 markdown-include
 
-# Needed for mock objects in decorators
-mock
-
 # Needed to access rabbitmq
 pika
 
@@ -91,9 +92,6 @@ pytz
 
 # Needed for redis
 redis
-
-# Needed for Python 2+3 compatibility
-six
 
 # Needed to parse source maps for error reporting
 sourcemap
@@ -145,6 +143,9 @@ py3dns
 social-auth-app-django
 social-auth-core[azuread,saml]
 
+# For encrypting a login token to the desktop app
+cryptography
+
 # Needed for messages' rendered content parsing in push notifications.
 lxml
 
@@ -181,3 +182,10 @@ django-cookies-samesite
 
 # For server-side enforcement of password strength
 zxcvbn
+
+# Needed for sending HTTP requests
+requests[security]
+requests-oauthlib
+
+# For OpenAPI schema validation.
+openapi-core

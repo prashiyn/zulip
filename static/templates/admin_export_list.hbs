@@ -8,15 +8,21 @@
     </td>
     <td>
         {{#if url}}
-        <span class="export_url"><a href="{{url}}" download>{{t 'Download' }}</a></span>
-        {{else}}
-        <span class="export_url">{{t 'The export URL is not yet available... Check back soon.' }}</span>
+        <span class="export_url"><a href="{{url}}" download>{{t 'Complete' }}</a></span>
+        {{else if time_failed}}
+        <span class="export_status">{{t 'Failed' }}: {{time_failed}}</span>
+        {{else if pending}}
+        <div class="export_url_spinner"></div>
+        {{else if time_deleted}}
+        <span class="export_status">{{t 'Deleted' }}: {{time_deleted}}</span>
         {{/if}}
     </td>
     <td class="actions">
+        {{#unless time_deleted}}
         <button class="button rounded small delete btn-danger" data-export-id="{{id}}">
             <i class="fa fa-trash-o" aria-hidden="true"></i>
         </button>
+        {{/unless}}
     </td>
 </tr>
 {{/with}}

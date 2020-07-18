@@ -6,8 +6,10 @@ from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 
 from zerver.decorator import api_key_only_webhook_view
-from zerver.lib.actions import check_send_private_message, \
-    send_rate_limited_pm_notification_to_bot_owner
+from zerver.lib.actions import (
+    check_send_private_message,
+    send_rate_limited_pm_notification_to_bot_owner,
+)
 from zerver.lib.request import REQ, has_request_variables
 from zerver.lib.response import json_success
 from zerver.lib.send_email import FromAddress
@@ -30,7 +32,6 @@ def guess_zulip_user_from_teamcity(teamcity_username: str, realm: Realm) -> Opti
         # and beginning of email address
         user = UserProfile.objects.filter(
             Q(full_name__iexact=teamcity_username) |
-            Q(short_name__iexact=teamcity_username) |
             Q(email__istartswith=teamcity_username),
             is_active=True,
             realm=realm).order_by("id")[0]
@@ -76,11 +77,9 @@ def api_teamcity_webhook(request: HttpRequest, user_profile: UserProfile,
             status = 'was successful! :thumbs_up:'
     elif build_result == 'failure':
         if build_result_delta == 'broken':
-            status = 'is broken with status {status}! :thumbs_down:'.format(
-                status=build_status)
+            status = f'is broken with status {build_status}! :thumbs_down:'
         else:
-            status = 'is still broken with status {status}! :thumbs_down:'.format(
-                status=build_status)
+            status = f'is still broken with status {build_status}! :thumbs_down:'
     elif build_result == 'running':
         status = 'has started.'
 
@@ -94,7 +93,7 @@ def api_teamcity_webhook(request: HttpRequest, user_profile: UserProfile,
         build_id=build_number,
         status=status,
         changes_url=changes_url,
-        log_url=build_url
+        log_url=build_url,
     )
 
     if 'branchDisplayName' in message:
@@ -119,10 +118,10 @@ def api_teamcity_webhook(request: HttpRequest, user_profile: UserProfile,
         if teamcity_user is None:
             # We can't figure out who started this build - there's nothing we can do here.
             logging.info("Teamcity webhook couldn't find a matching Zulip user for "
-                         "Teamcity user '%s' or '%s'" % (teamcity_fullname, teamcity_shortname))
+                         "Teamcity user '%s' or '%s'", teamcity_fullname, teamcity_shortname)
             return json_success()
 
-        body = "Your personal build for {}".format(body)
+        body = f"Your personal build for {body}"
         check_send_private_message(user_profile, request.client, teamcity_user, body)
 
         return json_success()

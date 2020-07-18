@@ -1,5 +1,5 @@
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 from zerver.lib.actions import render_stream_description
@@ -26,5 +26,6 @@ class Migration(migrations.Migration):
             field=models.TextField(default=''),
         ),
         migrations.RunPython(render_all_stream_descriptions,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
     ]

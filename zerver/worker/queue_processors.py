@@ -1,59 +1,103 @@
 # Documented in https://zulip.readthedocs.io/en/latest/subsystems/queuing.html
-from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Mapping, MutableSequence, Optional, cast, Tuple, TypeVar, Type
-
+import base64
 import copy
+import datetime
+import email
+import email.policy
+import logging
+import os
 import signal
-import tempfile
-from functools import wraps
-from threading import Timer
-
 import smtplib
 import socket
+import tempfile
+import time
+import urllib
+from abc import ABC, abstractmethod
+from collections import defaultdict, deque
+from email.message import EmailMessage
+from functools import wraps
+from threading import Timer
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Mapping,
+    MutableSequence,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 
+import requests
+import ujson
 from django.conf import settings
 from django.db import connection
-from zerver.models import \
-    get_client, get_system_bot, PreregistrationUser, \
-    get_user_profile_by_id, Message, Realm, UserMessage, UserProfile, \
-    Client, flush_per_request_caches
-from zerver.lib.context_managers import lockfile
-from zerver.lib.error_notify import do_report_error
-from zerver.lib.queue import SimpleQueueClient, retry_event
-from zerver.lib.timestamp import timestamp_to_datetime
-from zerver.lib.email_notifications import handle_missedmessage_emails
-from zerver.lib.push_notifications import handle_push_notification, handle_remove_push_notification, \
-    initialize_push_notifications, clear_push_device_tokens
-from zerver.lib.actions import do_send_confirmation_email, \
-    do_update_user_activity, do_update_user_activity_interval, do_update_user_presence, \
-    internal_send_stream_message, internal_send_private_message, notify_realm_export, \
-    render_incoming_message, do_update_embedded_data, do_mark_stream_messages_as_read
-from zerver.lib.url_preview import preview as url_preview
-from zerver.lib.digest import handle_digest_email
-from zerver.lib.send_email import send_future_email, send_email_from_dict, \
-    FromAddress, EmailNotDeliveredException, handle_send_email_format_changes
-from zerver.lib.email_mirror import process_message as mirror_email, rate_limit_mirror_by_realm, \
-    is_missed_message_address, decode_stream_email_address
-from zerver.lib.streams import access_stream_by_id
-from zerver.lib.db import reset_queries
-from zerver.context_processors import common_context
-from zerver.lib.outgoing_webhook import do_rest_call, get_outgoing_webhook_service_handler
-from zerver.models import get_bot_services, get_stream, RealmAuditLog
+from django.utils.timezone import now as timezone_now
+from django.utils.translation import override as override_language
+from django.utils.translation import ugettext as _
 from zulip_bots.lib import ExternalBotHandler, extract_query_without_mention
-from zerver.lib.bot_lib import EmbeddedBotHandler, get_bot_handler, EmbeddedBotQuitException
+
+from zerver.context_processors import common_context
+from zerver.lib.actions import (
+    do_mark_stream_messages_as_read,
+    do_send_confirmation_email,
+    do_update_embedded_data,
+    do_update_user_activity,
+    do_update_user_activity_interval,
+    do_update_user_presence,
+    internal_send_private_message,
+    notify_realm_export,
+    render_incoming_message,
+)
+from zerver.lib.bot_lib import EmbeddedBotHandler, EmbeddedBotQuitException, get_bot_handler
+from zerver.lib.context_managers import lockfile
+from zerver.lib.db import reset_queries
+from zerver.lib.digest import handle_digest_email
+from zerver.lib.email_mirror import decode_stream_email_address, is_missed_message_address
+from zerver.lib.email_mirror import process_message as mirror_email
+from zerver.lib.email_mirror import rate_limit_mirror_by_realm
+from zerver.lib.email_notifications import handle_missedmessage_emails
+from zerver.lib.error_notify import do_report_error
 from zerver.lib.exceptions import RateLimited
 from zerver.lib.export import export_realm_wrapper
+from zerver.lib.outgoing_webhook import do_rest_call, get_outgoing_webhook_service_handler
+from zerver.lib.push_notifications import (
+    clear_push_device_tokens,
+    handle_push_notification,
+    handle_remove_push_notification,
+    initialize_push_notifications,
+)
+from zerver.lib.pysa import mark_sanitized
+from zerver.lib.queue import SimpleQueueClient, retry_event
 from zerver.lib.remote_server import PushNotificationBouncerRetryLaterError
-
-import os
-import ujson
-from collections import defaultdict, deque
-import email
-import time
-import datetime
-import logging
-import requests
-import urllib
+from zerver.lib.send_email import (
+    EmailNotDeliveredException,
+    FromAddress,
+    handle_send_email_format_changes,
+    send_email_from_dict,
+    send_future_email,
+)
+from zerver.lib.streams import access_stream_by_id
+from zerver.lib.timestamp import timestamp_to_datetime
+from zerver.lib.url_preview import preview as url_preview
+from zerver.models import (
+    Client,
+    Message,
+    PreregistrationUser,
+    Realm,
+    RealmAuditLog,
+    UserMessage,
+    UserProfile,
+    filter_to_valid_prereg_users,
+    flush_per_request_caches,
+    get_bot_services,
+    get_client,
+    get_system_bot,
+    get_user_profile_by_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +107,7 @@ class WorkerDeclarationException(Exception):
 ConcreteQueueWorker = TypeVar('ConcreteQueueWorker', bound='QueueProcessingWorker')
 
 def assign_queue(
-        queue_name: str, enabled: bool=True, queue_type: str="consumer"
+        queue_name: str, enabled: bool=True, queue_type: str="consumer",
 ) -> Callable[[Type[ConcreteQueueWorker]], Type[ConcreteQueueWorker]]:
     def decorate(clazz: Type[ConcreteQueueWorker]) -> Type[ConcreteQueueWorker]:
         clazz.queue_name = queue_name
@@ -98,28 +142,31 @@ def check_and_send_restart_signal() -> None:
         pass
 
 def retry_send_email_failures(
-        func: Callable[[ConcreteQueueWorker, Dict[str, Any]], None]
+        func: Callable[[ConcreteQueueWorker, Dict[str, Any]], None],
 ) -> Callable[['QueueProcessingWorker', Dict[str, Any]], None]:
 
     @wraps(func)
     def wrapper(worker: ConcreteQueueWorker, data: Dict[str, Any]) -> None:
         try:
             func(worker, data)
-        except (smtplib.SMTPServerDisconnected, socket.gaierror, EmailNotDeliveredException):
+        except (smtplib.SMTPServerDisconnected, socket.gaierror, socket.timeout,
+                EmailNotDeliveredException) as e:
+            error_class_name = e.__class__.__name__
+
             def on_failure(event: Dict[str, Any]) -> None:
-                logging.exception("Event {} failed".format(event))
+                logging.exception("Event %r failed due to exception %s", event, error_class_name)
 
             retry_event(worker.queue_name, data, on_failure)
 
     return wrapper
 
 class QueueProcessingWorker(ABC):
-    queue_name: str = None
+    queue_name: str
     CONSUME_ITERATIONS_BEFORE_UPDATE_STATS_NUM = 50
 
     def __init__(self) -> None:
-        self.q: SimpleQueueClient = None
-        if self.queue_name is None:
+        self.q: Optional[SimpleQueueClient] = None
+        if not hasattr(self, "queue_name"):
             raise WorkerDeclarationException("Queue worker declared without queue_name")
 
         self.initialize_statistics()
@@ -149,7 +196,7 @@ class QueueProcessingWorker(ABC):
 
         os.makedirs(settings.QUEUE_STATS_DIR, exist_ok=True)
 
-        fname = '%s.stats' % (self.queue_name,)
+        fname = f'{self.queue_name}.stats'
         fn = os.path.join(settings.QUEUE_STATS_DIR, fname)
         with lockfile(fn + '.lock'):
             tmp_fn = fn + '.tmp'
@@ -203,9 +250,11 @@ class QueueProcessingWorker(ABC):
         self._log_problem()
         if not os.path.exists(settings.QUEUE_ERROR_DIR):
             os.mkdir(settings.QUEUE_ERROR_DIR)  # nocoverage
-        fname = '%s.errors' % (self.queue_name,)
+        # Use 'mark_sanitized' to prevent Pysa from detecting this false positive
+        # flow. 'queue_name' is always a constant string.
+        fname = mark_sanitized(f'{self.queue_name}.errors')
         fn = os.path.join(settings.QUEUE_ERROR_DIR, fname)
-        line = '%s\t%s\n' % (time.asctime(), ujson.dumps(events))
+        line = f'{time.asctime()}\t{ujson.dumps(events)}\n'
         lock_fn = fn + '.lock'
         with lockfile(lock_fn):
             with open(fn, 'ab') as f:
@@ -213,17 +262,19 @@ class QueueProcessingWorker(ABC):
         check_and_send_restart_signal()
 
     def _log_problem(self) -> None:
-        logging.exception("Problem handling data on queue %s" % (self.queue_name,))
+        logging.exception("Problem handling data on queue %s", self.queue_name)
 
     def setup(self) -> None:
         self.q = SimpleQueueClient()
 
     def start(self) -> None:
+        assert self.q is not None
         self.initialize_statistics()
         self.q.register_json_consumer(self.queue_name, self.consume_wrapper)
         self.q.start_consuming()
 
     def stop(self) -> None:  # nocoverage
+        assert self.q is not None
         self.q.stop_consuming()
 
 class LoopQueueProcessingWorker(QueueProcessingWorker):
@@ -231,9 +282,10 @@ class LoopQueueProcessingWorker(QueueProcessingWorker):
     sleep_only_if_empty = True
 
     def start(self) -> None:  # nocoverage
+        assert self.q is not None
         self.initialize_statistics()
         while True:
-            events = self.q.drain_queue(self.queue_name, json=True)
+            events = self.q.json_drain_queue(self.queue_name)
             self.do_consume(self.consume_batch, events)
             # To avoid spinning the CPU, we go to sleep if there's
             # nothing in the queue, or for certain queues with
@@ -254,19 +306,22 @@ class SignupWorker(QueueProcessingWorker):
     def consume(self, data: Dict[str, Any]) -> None:
         # TODO: This is the only implementation with Dict cf Mapping; should we simplify?
         user_profile = get_user_profile_by_id(data['user_id'])
-        logging.info("Processing signup for user %s in realm %s" % (
-            user_profile.id, user_profile.realm.string_id))
+        logging.info(
+            "Processing signup for user %s in realm %s",
+            user_profile.id, user_profile.realm.string_id,
+        )
         if settings.MAILCHIMP_API_KEY and settings.PRODUCTION:
-            endpoint = "https://%s.api.mailchimp.com/3.0/lists/%s/members" % \
-                       (settings.MAILCHIMP_API_KEY.split('-')[1], settings.ZULIP_FRIENDS_LIST_ID)
+            endpoint = "https://{}.api.mailchimp.com/3.0/lists/{}/members".format(
+                settings.MAILCHIMP_API_KEY.split('-')[1], settings.ZULIP_FRIENDS_LIST_ID,
+            )
             params = dict(data)
             del params['user_id']
             params['list_id'] = settings.ZULIP_FRIENDS_LIST_ID
             params['status'] = 'subscribed'
             r = requests.post(endpoint, auth=('apikey', settings.MAILCHIMP_API_KEY), json=params, timeout=10)
             if r.status_code == 400 and ujson.loads(r.text)['title'] == 'Member Exists':
-                logging.warning("Attempted to sign up already existing email to list: %s" %
-                                (data['email_address'],))
+                logging.warning("Attempted to sign up already existing email to list: %s",
+                                data['email_address'])
             elif r.status_code == 400:
                 retry_event(self.queue_name, data, lambda e: r.raise_for_status())
             else:
@@ -278,16 +333,19 @@ class ConfirmationEmailWorker(QueueProcessingWorker):
         if "email" in data:
             # When upgrading from a version up through 1.7.1, there may be
             # existing items in the queue with `email` instead of `prereg_id`.
-            invitee = PreregistrationUser.objects.filter(
-                email__iexact=data["email"].strip()).latest("invited_at")
+            invitee = filter_to_valid_prereg_users(
+                PreregistrationUser.objects.filter(email__iexact=data["email"].strip())
+            ).latest("invited_at")
         else:
-            invitee = PreregistrationUser.objects.filter(id=data["prereg_id"]).first()
+            invitee = filter_to_valid_prereg_users(
+                PreregistrationUser.objects.filter(id=data["prereg_id"])
+            ).first()
             if invitee is None:
                 # The invitation could have been revoked
                 return
 
         referrer = get_user_profile_by_id(data["referrer_id"])
-        logger.info("Sending invitation for realm %s to %s" % (referrer.realm.string_id, invitee.email))
+        logger.info("Sending invitation for realm %s to %s", referrer.realm.string_id, invitee.email)
         activate_url = do_send_confirmation_email(invitee, referrer)
 
         # queue invitation reminder
@@ -344,10 +402,17 @@ class UserActivityWorker(LoopQueueProcessingWorker):
         for event in user_activity_events:
             user_profile_id = event["user_profile_id"]
 
-            if event["client"] not in self.client_id_map:
-                client = get_client(event["client"])
-                self.client_id_map[event["client"]] = client.id
-            client_id = self.client_id_map[event["client"]]
+            if "client_id" not in event:
+                # This is for compatibility with older events still stuck in the queue,
+                # that used the client name in event["client"] instead of having
+                # event["client_id"] directly.
+                # TODO: This can be deleted for release >= 4.0.
+                if event["client"] not in self.client_id_map:
+                    client = get_client(event["client"])
+                    self.client_id_map[event["client"]] = client.id
+                client_id = self.client_id_map[event["client"]]
+            else:
+                client_id = event["client_id"]
 
             key_tuple = (user_profile_id, client_id, event["query"])
             if key_tuple not in uncommitted_events:
@@ -377,7 +442,7 @@ class UserActivityIntervalWorker(QueueProcessingWorker):
 @assign_queue('user_presence')
 class UserPresenceWorker(QueueProcessingWorker):
     def consume(self, event: Mapping[str, Any]) -> None:
-        logging.debug("Received presence event: %s" % (event,),)
+        logging.debug("Received presence event: %s", event)
         user_profile = get_user_profile_by_id(event["user_profile_id"])
         client = get_client(event["client"])
         log_time = timestamp_to_datetime(event["time"])
@@ -405,7 +470,7 @@ class MissedMessageWorker(QueueProcessingWorker):
     batch_start_by_recipient: Dict[int, float] = {}
 
     def consume(self, event: Dict[str, Any]) -> None:
-        logging.debug("Received missedmessage_emails event: %s" % (event,))
+        logging.debug("Received missedmessage_emails event: %s", event)
 
         # When we process an event, just put it into the queue and ensure we have a timer going.
         user_profile_id = event['user_profile_id']
@@ -434,8 +499,8 @@ class MissedMessageWorker(QueueProcessingWorker):
             if current_time - timestamp < self.BATCH_DURATION:
                 continue
             events = self.events_by_recipient[user_profile_id]
-            logging.info("Batch-processing %s missedmessage_emails events for user %s" %
-                         (len(events), user_profile_id))
+            logging.info("Batch-processing %s missedmessage_emails events for user %s",
+                         len(events), user_profile_id)
             handle_missedmessage_emails(user_profile_id, events)
             del self.events_by_recipient[user_profile_id]
             del self.batch_start_by_recipient[user_profile_id]
@@ -480,67 +545,34 @@ class PushNotificationsWorker(QueueProcessingWorker):  # nocoverage
         except PushNotificationBouncerRetryLaterError:
             def failure_processor(event: Dict[str, Any]) -> None:
                 logger.warning(
-                    "Maximum retries exceeded for trigger:%s event:push_notification" % (
-                        event['user_profile_id'],))
+                    "Maximum retries exceeded for trigger:%s event:push_notification",
+                    event['user_profile_id'])
             retry_event(self.queue_name, event, failure_processor)
 
 @assign_queue('error_reports')
 class ErrorReporter(QueueProcessingWorker):
     def consume(self, event: Mapping[str, Any]) -> None:
-        logging.info("Processing traceback with type %s for %s" % (event['type'], event.get('user_email')))
+        logging.info("Processing traceback with type %s for %s", event['type'], event.get('user_email'))
         if settings.ERROR_REPORTING:
             do_report_error(event['report']['host'], event['type'], event['report'])
-
-@assign_queue('slow_queries', queue_type="loop")
-class SlowQueryWorker(LoopQueueProcessingWorker):
-    # Sleep 1 minute between checking the queue unconditionally,
-    # regardless of whether anything is in the queue.
-    sleep_delay = 60 * 1
-    sleep_only_if_empty = False
-
-    def consume_batch(self, slow_query_events: List[Dict[str, Any]]) -> None:
-        for event in slow_query_events:
-            logging.info("Slow query: %s" % (event["query"],))
-
-        if settings.SLOW_QUERY_LOGS_STREAM is None:
-            return
-
-        if settings.ERROR_BOT is None:
-            return
-
-        if len(slow_query_events) > 0:
-            topic = "%s: slow queries" % (settings.EXTERNAL_HOST,)
-
-            content = ""
-            for event in slow_query_events:
-                content += "    %s\n" % (event["query"],)
-
-            error_bot = get_system_bot(settings.ERROR_BOT)
-            realm = error_bot.realm
-            errors_stream = get_stream(
-                settings.SLOW_QUERY_LOGS_STREAM,
-                realm
-            )
-            internal_send_stream_message(
-                realm,
-                error_bot,
-                errors_stream,
-                topic,
-                content
-            )
 
 @assign_queue('digest_emails')
 class DigestWorker(QueueProcessingWorker):  # nocoverage
     # Who gets a digest is entirely determined by the enqueue_digest_emails
     # management command, not here.
     def consume(self, event: Mapping[str, Any]) -> None:
-        logging.info("Received digest event: %s" % (event,))
+        logging.info("Received digest event: %s", event)
         handle_digest_email(event["user_profile_id"], event["cutoff"])
 
 @assign_queue('email_mirror')
 class MirrorWorker(QueueProcessingWorker):
     def consume(self, event: Mapping[str, Any]) -> None:
         rcpt_to = event['rcpt_to']
+        msg = email.message_from_bytes(
+            base64.b64decode(event["msg_base64"]),
+            policy=email.policy.default,
+        )
+        assert isinstance(msg, EmailMessage)  # https://github.com/python/typeshed/issues/2417
         if not is_missed_message_address(rcpt_to):
             # Missed message addresses are one-time use, so we don't need
             # to worry about emails to them resulting in message spam.
@@ -548,14 +580,12 @@ class MirrorWorker(QueueProcessingWorker):
             try:
                 rate_limit_mirror_by_realm(recipient_realm)
             except RateLimited:
-                msg = email.message_from_string(event["message"])
                 logger.warning("MirrorWorker: Rejecting an email from: %s "
-                               "to realm: %s - rate limited."
-                               % (msg['From'], recipient_realm.name))
+                               "to realm: %s - rate limited.",
+                               msg['From'], recipient_realm.name)
                 return
 
-        mirror_email(email.message_from_string(event["message"]),
-                     rcpt_to=rcpt_to)
+        mirror_email(msg, rcpt_to=rcpt_to)
 
 @assign_queue('test', queue_type="test")
 class TestWorker(QueueProcessingWorker):
@@ -566,7 +596,7 @@ class TestWorker(QueueProcessingWorker):
     def consume(self, event: Mapping[str, Any]) -> None:  # nocoverage
         fn = settings.ZULIP_WORKER_TEST_FILE
         message = ujson.dumps(event)
-        logging.info("TestWorker should append this message to %s: %s" % (fn, message))
+        logging.info("TestWorker should append this message to %s: %s", fn, message)
         with open(fn, 'a') as f:
             f.write(message + '\n')
 
@@ -574,16 +604,18 @@ class TestWorker(QueueProcessingWorker):
 class FetchLinksEmbedData(QueueProcessingWorker):
     def consume(self, event: Mapping[str, Any]) -> None:
         for url in event['urls']:
+            start_time = time.time()
             url_preview.get_link_embed_data(url)
+            logging.info("Time spent on get_link_embed_data for %s: %s", url, time.time() - start_time)
 
         message = Message.objects.get(id=event['message_id'])
         # If the message changed, we will run this task after updating the message
-        # in zerver.views.messages.update_message_backend
+        # in zerver.views.message_edit.update_message_backend
         if message.content != event['message_content']:
             return
         if message.content is not None:
             query = UserMessage.objects.filter(
-                message=message.id
+                message=message.id,
             )
             message_user_ids = set(query.values_list('user_profile_id', flat=True))
 
@@ -601,20 +633,19 @@ class FetchLinksEmbedData(QueueProcessingWorker):
 
 @assign_queue('outgoing_webhooks')
 class OutgoingWebhookWorker(QueueProcessingWorker):
-    def consume(self, event: Mapping[str, Any]) -> None:
+    def consume(self, event: Dict[str, Any]) -> None:
         message = event['message']
-        dup_event = cast(Dict[str, Any], event)
-        dup_event['command'] = message['content']
+        event['command'] = message['content']
 
         services = get_bot_services(event['user_profile_id'])
         for service in services:
-            dup_event['service_name'] = str(service.name)
+            event['service_name'] = str(service.name)
             service_handler = get_outgoing_webhook_service_handler(service)
-            request_data = service_handler.build_bot_request(dup_event)
+            request_data = service_handler.build_bot_request(event)
             if request_data:
                 do_rest_call(service.base_url,
                              request_data,
-                             dup_event,
+                             event,
                              service_handler)
 
 @assign_queue('embedded_bots')
@@ -627,15 +658,17 @@ class EmbeddedBotWorker(QueueProcessingWorker):
         user_profile_id = event['user_profile_id']
         user_profile = get_user_profile_by_id(user_profile_id)
 
-        message = cast(Dict[str, Any], event['message'])
+        message: Dict[str, Any] = event['message']
 
         # TODO: Do we actually want to allow multiple Services per bot user?
         services = get_bot_services(user_profile_id)
         for service in services:
             bot_handler = get_bot_handler(str(service.name))
             if bot_handler is None:
-                logging.error("Error: User %s has bot with invalid embedded bot service %s" % (
-                    user_profile_id, service.name))
+                logging.error(
+                    "Error: User %s has bot with invalid embedded bot service %s",
+                    user_profile_id, service.name,
+                )
                 continue
             try:
                 if hasattr(bot_handler, 'initialize'):
@@ -648,7 +681,7 @@ class EmbeddedBotWorker(QueueProcessingWorker):
                     assert message['content'] is not None
                 bot_handler.handle_message(
                     message=message,
-                    bot_handler=self.get_bot_api_client(user_profile)
+                    bot_handler=self.get_bot_api_client(user_profile),
                 )
             except EmbeddedBotQuitException as e:
                 logging.warning(str(e))
@@ -673,21 +706,35 @@ class DeferredWorker(QueueProcessingWorker):
             except PushNotificationBouncerRetryLaterError:
                 def failure_processor(event: Dict[str, Any]) -> None:
                     logger.warning(
-                        "Maximum retries exceeded for trigger:%s event:clear_push_device_tokens" % (
-                            event['user_profile_id'],))
+                        "Maximum retries exceeded for trigger:%s event:clear_push_device_tokens",
+                        event['user_profile_id'])
                 retry_event(self.queue_name, event, failure_processor)
         elif event['type'] == 'realm_export':
             start = time.time()
             realm = Realm.objects.get(id=event['realm_id'])
             output_dir = tempfile.mkdtemp(prefix="zulip-export-")
+            export_event = RealmAuditLog.objects.get(id=event['id'])
+            user_profile = get_user_profile_by_id(event['user_profile_id'])
 
-            public_url = export_realm_wrapper(realm=realm, output_dir=output_dir,
-                                              threads=6, upload=True, public_only=True,
-                                              delete_after_upload=True)
+            try:
+                public_url = export_realm_wrapper(realm=realm, output_dir=output_dir,
+                                                  threads=6, upload=True, public_only=True,
+                                                  delete_after_upload=True)
+            except Exception:
+                export_event.extra_data = ujson.dumps(dict(
+                    failed_timestamp=timezone_now().timestamp(),
+                ))
+                export_event.save(update_fields=['extra_data'])
+                logging.error(
+                    "Data export for %s failed after %s",
+                    user_profile.realm.string_id, time.time() - start,
+                )
+                notify_realm_export(user_profile)
+                return
+
             assert public_url is not None
 
             # Update the extra_data field now that the export is complete.
-            export_event = RealmAuditLog.objects.get(id=event['id'])
             export_event.extra_data = ujson.dumps(dict(
                 export_path=urllib.parse.urlparse(public_url).path,
             ))
@@ -695,18 +742,19 @@ class DeferredWorker(QueueProcessingWorker):
 
             # Send a private message notification letting the user who
             # triggered the export know the export finished.
-            user_profile = get_user_profile_by_id(event['user_profile_id'])
-            content = "Your data export is complete and has been uploaded here:\n\n%s" % (
-                public_url,)
+            with override_language(user_profile.default_language):
+                content = _("Your data export is complete and has been uploaded here:\n\n{public_url}").format(public_url=public_url)
             internal_send_private_message(
                 realm=user_profile.realm,
                 sender=get_system_bot(settings.NOTIFICATION_BOT),
                 recipient_user=user_profile,
-                content=content
+                content=content,
             )
 
             # For future frontend use, also notify administrator
             # clients that the export happened.
             notify_realm_export(user_profile)
-            logging.info("Completed data export for %s in %s" % (
-                user_profile.realm.string_id, time.time() - start))
+            logging.info(
+                "Completed data export for %s in %s",
+                user_profile.realm.string_id, time.time() - start,
+            )

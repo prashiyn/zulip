@@ -1,8 +1,6 @@
 # Get topics in a stream
 
-Get all the topics in a specific stream
-
-`GET {{ api_url }}/v1/users/me/{stream_id}/topics`
+{generate_api_description(/users/me/{stream_id}/topics:get)}
 
 ## Usage examples
 
@@ -14,20 +12,8 @@ Get all the topics in a specific stream
 {tab|js}
 
 More examples and documentation can be found [here](https://github.com/zulip/zulip-js).
-```js
-const zulip = require('zulip-js');
 
-// Pass the path to your zuliprc file here.
-const config = {
-    zuliprc: 'zuliprc',
-};
-
-zulip(config).then((client) => {
-    // Get all the topics in stream with ID 1
-    return client.streams.topics.retrieve({ stream_id: 1 });
-}).then(console.log);
-
-```
+{generate_code_example(javascript)|/users/me/{stream_id}/topics:get|example}
 
 {tab|curl}
 
@@ -35,7 +21,7 @@ zulip(config).then((client) => {
 
 {end_tabs}
 
-## Arguments
+## Parameters
 
 {generate_api_arguments_table|zulip.yaml|/users/me/{stream_id}/topics:get}
 
@@ -43,9 +29,7 @@ zulip(config).then((client) => {
 
 #### Return values
 
-* `topics`: An array of `topic` objects, which contain:
-    * `name`: The name of the topic.
-    * `max_id`: The message ID of the last message sent to this topic.
+{generate_return_values_table|zulip.yaml|/users/me/{stream_id}/topics:get}
 
 #### Example response
 

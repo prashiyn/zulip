@@ -46,7 +46,7 @@ from Zulip's main repositories.
 
 **Note about git pull**: You might be used to using `git pull` on other
 projects. With Zulip, because we don't use merge commits, you'll want to avoid
-it. Rather that using `git pull`, which by default is a shortcut for `git fetch
+it. Rather than using `git pull`, which by default is a shortcut for `git fetch
 && git merge FETCH_HEAD` ([docs][gitbook-git-pull]), you should use `git fetch`
 and then `git rebase`.
 
@@ -72,7 +72,7 @@ This will rollback any changes you've made to master, update it from
 history clean and readable.
 
 When you're ready, [push your changes][github-help-push] to your remote fork.
-Make sure you're in branch `master` and the run `git push`:
+Make sure you're in branch `master` and then run `git push`:
 
 ```
 $ git checkout master
@@ -125,8 +125,9 @@ Now you're ready to work on the issue or feature.
 
 ## Run linters and tests locally
 
-In addition to having Travis run tests and linters each time you push a new
-commit, you can also run them locally. See [testing](../testing/testing.md) for details.
+In addition to having CircleCI run tests and linters each time you
+push a new commit, you can also run them locally. See
+[testing](../testing/testing.md) for details.
 
 ## Stage changes
 
@@ -447,6 +448,7 @@ complicated rebase.
 [github-help-rebase]: https://help.github.com/en/articles/using-git-rebase
 [github-help-sync-fork]: https://help.github.com/en/articles/syncing-a-fork
 [how-git-is-different]: ./the-git-difference.md
+[self-multiple-computers]: ../git/troubleshooting.html#working-from-multiple-computers
 [zulip-git-guide-up-to-date]: ../git/using.html#keep-your-fork-up-to-date
 [zulip-rtd-commit-discipline]: ../contributing/version-control.html#commit-discipline
 [zulip-rtd-commit-messages]: ../contributing/version-control.html#commit-messages

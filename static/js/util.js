@@ -32,7 +32,9 @@ exports.lower_bound = function (array, arg1, arg2, arg3, arg4) {
     }
 
     if (less === undefined) {
-        less = function (a, b) { return a < b; };
+        less = function (a, b) {
+            return a < b;
+        };
     }
 
     let len = last - first;
@@ -58,17 +60,16 @@ function lower_same(a, b) {
 
 exports.same_stream_and_topic = function util_same_stream_and_topic(a, b) {
     // Streams and topics are case-insensitive.
-    return a.stream_id === b.stream_id &&
-        lower_same(a.topic, b.topic);
+    return a.stream_id === b.stream_id && lower_same(a.topic, b.topic);
 };
 
-exports.is_pm_recipient = function (email, message) {
-    const recipients = message.reply_to.toLowerCase().split(',');
-    return recipients.includes(email.toLowerCase());
+exports.is_pm_recipient = function (user_id, message) {
+    const recipients = message.to_user_ids.split(",");
+    return recipients.includes(user_id.toString());
 };
 
 exports.extract_pm_recipients = function (recipients) {
-    return recipients.split(/\s*[,;]\s*/).filter(recipient => recipient.trim() !== "");
+    return recipients.split(/\s*[,;]\s*/).filter((recipient) => recipient.trim() !== "");
 };
 
 exports.same_recipient = function util_same_recipient(a, b) {
@@ -80,13 +81,13 @@ exports.same_recipient = function util_same_recipient(a, b) {
     }
 
     switch (a.type) {
-    case 'private':
-        if (a.to_user_ids === undefined) {
-            return false;
-        }
-        return a.to_user_ids === b.to_user_ids;
-    case 'stream':
-        return exports.same_stream_and_topic(a, b);
+        case "private":
+            if (a.to_user_ids === undefined) {
+                return false;
+            }
+            return a.to_user_ids === b.to_user_ids;
+        case "stream":
+            return exports.same_stream_and_topic(a, b);
     }
 
     // should never get here
@@ -94,19 +95,22 @@ exports.same_recipient = function util_same_recipient(a, b) {
 };
 
 exports.same_sender = function util_same_sender(a, b) {
-    return a !== undefined && b !== undefined &&
-            a.sender_email.toLowerCase() === b.sender_email.toLowerCase();
+    return (
+        a !== undefined &&
+        b !== undefined &&
+        a.sender_email.toLowerCase() === b.sender_email.toLowerCase()
+    );
 };
 
 exports.normalize_recipients = function (recipients) {
     // Converts a string listing emails of message recipients
     // into a canonical formatting: emails sorted ASCIIbetically
     // with exactly one comma and no spaces between each.
-    recipients = recipients.split(',').map(s => s.trim());
-    recipients = recipients.map(s => s.toLowerCase());
-    recipients = recipients.filter(s => s.length > 0);
+    recipients = recipients.split(",").map((s) => s.trim());
+    recipients = recipients.map((s) => s.toLowerCase());
+    recipients = recipients.filter((s) => s.length > 0);
     recipients.sort();
-    return recipients.join(',');
+    return recipients.join(",");
 };
 
 // Avoid URI decode errors by removing characters from the end
@@ -125,7 +129,7 @@ exports.robust_uri_decode = function (str) {
             end -= 1;
         }
     }
-    return '';
+    return "";
 };
 
 // If we can, use a locale-aware sorter.  However, if the browser
@@ -148,8 +152,7 @@ exports.strcmp = exports.make_strcmp();
 
 exports.escape_regexp = function (string) {
     // code from https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Regular_Expressions
-    // Modified to escape the ^ to appease jslint. :/
-    return string.replace(/([.*+?\^=!:${}()|\[\]\/\\])/g, "\\$1");
+    return string.replace(/([.*+?^=!:${}()|[\]/\\])/g, "\\$1");
 };
 
 exports.array_compare = function util_array_compare(a, b) {
@@ -223,9 +226,7 @@ exports.sorted_ids = function (ids) {
     // This mapping makes sure we are using ints, and
     // it also makes sure we don't mutate the list.
     let id_list = ids.map(to_int);
-    id_list.sort(function (a, b) {
-        return a - b;
-    });
+    id_list.sort((a, b) => a - b);
     id_list = _.uniq(id_list, true);
 
     return id_list;
@@ -242,14 +243,14 @@ exports.get_match_topic = function (obj) {
 
 exports.get_draft_topic = function (obj) {
     // We will need to support subject for old drafts.
-    return obj.topic || obj.subject || '';
+    return obj.topic || obj.subject || "";
 };
 
 exports.get_reload_topic = function (obj) {
     // When we first upgrade to releases that have
     // topic=foo in the code, the user's reload URL
     // may still have subject=foo from the prior version.
-    return obj.topic || obj.subject || '';
+    return obj.topic || obj.subject || "";
 };
 
 exports.get_edit_event_topic = function (obj) {
@@ -271,7 +272,7 @@ exports.get_edit_event_prev_topic = function (obj) {
 };
 
 exports.is_topic_synonym = function (operator) {
-    return operator === 'subject';
+    return operator === "subject";
 };
 
 exports.convert_message_topic = function (message) {
@@ -292,30 +293,46 @@ exports.clean_user_content_links = function (html) {
         // Fragment links, which we intend to only open within the
         // Zulip webapp using our hashchange system, do not require
         // these attributes.
+        const href = elt.getAttribute("href");
         let url;
         try {
-            url = new URL(elt.getAttribute("href"), window.location.href);
+            url = new URL(href, window.location.href);
         } catch {
             elt.removeAttribute("href");
+            elt.removeAttribute("title");
             continue;
         }
 
-        if (
-            // eslint-disable-next-line no-script-url
-            ["data:", "javascript:", "vbscript:"].includes(url.protocol)
-        ) {
+        // eslint-disable-next-line no-script-url
+        if (["data:", "javascript:", "vbscript:"].includes(url.protocol)) {
             // Remove unsafe links completely.
             elt.removeAttribute("href");
-        } else if (
-            // We detect URLs that are just fragments by comparing the URL
-            // against a new URL generated using only the hash.
-            url.hash === "" || url.href !== new URL(url.hash, window.location.href).href
-        ) {
+            elt.removeAttribute("title");
+            continue;
+        }
+
+        // We detect URLs that are just fragments by comparing the URL
+        // against a new URL generated using only the hash.
+        if (url.hash === "" || url.href !== new URL(url.hash, window.location.href).href) {
             elt.setAttribute("target", "_blank");
             elt.setAttribute("rel", "noopener noreferrer");
         } else {
             elt.removeAttribute("target");
         }
+
+        // Ensure that the title displays the real URL.
+        let title;
+        let legacy_title;
+        if (url.origin === window.location.origin && url.pathname.startsWith("/user_uploads/")) {
+            title = legacy_title = url.pathname.slice(url.pathname.lastIndexOf("/") + 1);
+        } else {
+            title = url;
+            legacy_title = href;
+        }
+        elt.setAttribute(
+            "title",
+            ["", legacy_title].includes(elt.title) ? title : `${title}\n${elt.title}`,
+        );
     }
     return content.innerHTML;
 };

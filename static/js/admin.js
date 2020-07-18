@@ -1,6 +1,7 @@
 const settings_config = require("./settings_config");
 const settings_data = require("./settings_data");
-const render_admin_tab = require('../templates/admin_tab.hbs');
+const render_admin_tab = require("../templates/admin_tab.hbs");
+const render_settings_organization_settings_tip = require("../templates/settings/organization_settings_tip.hbs");
 
 const admin_settings_label = {
     // Organization settings
@@ -13,8 +14,9 @@ const admin_settings_label = {
     realm_inline_url_embed_preview: i18n.t("Show previews of linked websites"),
     realm_default_twenty_four_hour_time: i18n.t("Time format"),
     realm_send_welcome_emails: i18n.t("Send emails introducing Zulip to new users"),
-    realm_message_content_allowed_in_email_notifications:
-        i18n.t("Allow message content in missed message emails"),
+    realm_message_content_allowed_in_email_notifications: i18n.t(
+        "Allow message content in missed message emails",
+    ),
     realm_digest_emails_enabled: i18n.t("Send weekly digest emails to inactive users"),
     realm_default_code_block_language: i18n.t("Default language for code blocks:"),
 
@@ -23,6 +25,19 @@ const admin_settings_label = {
     realm_email_changes_disabled: i18n.t("Prevent users from changing their email address"),
     realm_avatar_changes_disabled: i18n.t("Prevent users from changing their avatar"),
 };
+
+function insert_tip_box() {
+    if (page_params.is_admin) {
+        return;
+    }
+    const tip_box = render_settings_organization_settings_tip({is_admin: page_params.is_admin});
+    $(".organization-box")
+        .find(".settings-section")
+        .not("#emoji-settings")
+        .not("#user-groups-admin")
+        .not("#organization-auth-settings")
+        .prepend(tip_box);
+}
 
 exports.build_page = function () {
     const options = {
@@ -47,10 +62,12 @@ exports.build_page = function () {
         realm_add_emoji_by_admins_only: page_params.realm_add_emoji_by_admins_only,
         can_add_emojis: settings_emoji.can_add_emoji(),
         realm_allow_community_topic_editing: page_params.realm_allow_community_topic_editing,
-        realm_message_content_edit_limit_minutes:
-            settings_org.get_realm_time_limits_in_minutes('realm_message_content_edit_limit_seconds'),
-        realm_message_content_delete_limit_minutes:
-            settings_org.get_realm_time_limits_in_minutes('realm_message_content_delete_limit_seconds'),
+        realm_message_content_edit_limit_minutes: settings_org.get_realm_time_limits_in_minutes(
+            "realm_message_content_edit_limit_seconds",
+        ),
+        realm_message_content_delete_limit_minutes: settings_org.get_realm_time_limits_in_minutes(
+            "realm_message_content_delete_limit_seconds",
+        ),
         realm_message_retention_days: page_params.realm_message_retention_days,
         realm_allow_edit_history: page_params.realm_allow_edit_history,
         language_list: page_params.language_list,
@@ -60,6 +77,8 @@ exports.build_page = function () {
         realm_signup_notifications_stream_id: page_params.realm_signup_notifications_stream_id,
         is_admin: page_params.is_admin,
         is_guest: page_params.is_guest,
+        is_owner: page_params.is_owner,
+        user_can_change_logo: settings_data.user_can_change_logo(),
         realm_icon_source: page_params.realm_icon_source,
         realm_icon_url: page_params.realm_icon_url,
         realm_logo_source: page_params.realm_logo_source,
@@ -75,7 +94,7 @@ exports.build_page = function () {
         realm_digest_weekday: page_params.realm_digest_weekday,
         show_email: settings_data.show_email(),
         development: page_params.development_environment,
-        plan_includes_wide_organization_logo: page_params.plan_includes_wide_organization_logo,
+        zulip_plan_is_not_limited: page_params.zulip_plan_is_not_limited,
         upgrade_text_for_wide_organization_logo:
             page_params.upgrade_text_for_wide_organization_logo,
         realm_default_external_accounts: page_params.realm_default_external_accounts,
@@ -88,7 +107,7 @@ exports.build_page = function () {
     options.email_address_visibility_values = settings_config.email_address_visibility_values;
     Object.assign(options, settings_org.get_organization_settings_options());
 
-    if (options.realm_logo_source !== 'D' && options.realm_night_logo_source === 'D') {
+    if (options.realm_logo_source !== "D" && options.realm_night_logo_source === "D") {
         // If no night mode logo is specified but a day mode one is,
         // use the day mode one.  See also similar code in realm_logo.js.
         options.realm_night_logo_url = options.realm_logo_url;
@@ -99,6 +118,8 @@ exports.build_page = function () {
     $("#settings_content .alert").removeClass("show");
 
     settings_bots.update_bot_settings_tip();
+    insert_tip_box();
+
     $("#id_realm_bot_creation_policy").val(page_params.realm_bot_creation_policy);
     $("#id_realm_email_address_visibility").val(page_params.realm_email_address_visibility);
 
@@ -108,10 +129,10 @@ exports.build_page = function () {
     // default_twenty_four_hour time is a boolean in the API but a
     // dropdown, so we need to convert the value to a string for
     // storage in the browser's DOM.
-    $("#id_realm_default_twenty_four_hour_time").val(JSON.stringify(
-        page_params.realm_default_twenty_four_hour_time));
+    $("#id_realm_default_twenty_four_hour_time").val(
+        JSON.stringify(page_params.realm_default_twenty_four_hour_time),
+    );
 };
-
 
 exports.launch = function (section) {
     settings.build_page();
@@ -119,8 +140,8 @@ exports.launch = function (section) {
     settings_sections.reset_sections();
 
     overlays.open_settings();
-    settings_panel_menu.org_settings.activate_section(section);
-    settings_toggle.highlight_toggle('organization');
+    settings_panel_menu.org_settings.activate_section_or_default(section);
+    settings_toggle.highlight_toggle("organization");
 };
 
 window.admin = exports;

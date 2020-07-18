@@ -9,7 +9,7 @@ from django.http import HttpRequest, HttpResponse
 from zerver.lib.management import ZulipBaseCommand
 from zerver.middleware import LogRequests
 from zerver.models import UserMessage, UserProfile
-from zerver.views.messages import get_messages_backend
+from zerver.views.message_fetch import get_messages_backend
 
 request_logger = LogRequests()
 
@@ -27,7 +27,7 @@ class MockRequest(HttpRequest):
         self.REQUEST = {
             "anchor": anchor,
             "num_before": 1200,
-            "num_after": 200
+            "num_after": 200,
         }
         self.GET: Dict[Any, Any] = {}
         self.session = MockSession()
@@ -45,7 +45,7 @@ def profile_request(request: HttpRequest) -> HttpResponse:
     with tempfile.NamedTemporaryFile(prefix='profile.data.', delete=False) as stats_file:
         prof.dump_stats(stats_file.name)
         request_logger.process_response(request, ret)
-        logging.info("Profiling data written to {}".format(stats_file.name))
+        logging.info("Profiling data written to %s", stats_file.name)
     return ret
 
 class Command(ZulipBaseCommand):

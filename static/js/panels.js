@@ -2,15 +2,22 @@ const util = require("./util");
 const resize_app = function () {
     const panels_height = $("#panels").height();
     $("body > .app").height("calc(100% - " + panels_height + "px)");
-    // the floating recipient bar is usually positioned 10px below the
-    // header, so add that to the panels height to get the new `top` value.
-    $("#floating_recipient_bar").css("top", panels_height + $(".header").height() + 10 + "px");
+
+    // the floating recipient bar is usually positioned right below
+    // the `.header` element (including padding).
+    const frb_top =
+        panels_height + $(".header").height() + parseInt($(".header").css("paddingBottom"), 10);
+    $("#floating_recipient_bar").css("top", frb_top + "px");
 };
 
 exports.resize_app = resize_app;
 
 const show_step = function ($process, step) {
-    $process.find("[data-step]").hide().filter("[data-step=" + step + "]").show();
+    $process
+        .find("[data-step]")
+        .hide()
+        .filter("[data-step=" + step + "]")
+        .show();
 };
 
 const get_step = function ($process) {
@@ -46,8 +53,10 @@ exports.check_profile_incomplete = function () {
     // Eventually, we might also check page_params.realm_icon_source,
     // but it feels too aggressive to ask users to do change that
     // since their organization might not have a logo yet.
-    if (page_params.realm_description === '' ||
-        page_params.realm_description.startsWith("Organization imported from")) {
+    if (
+        page_params.realm_description === "" ||
+        page_params.realm_description.startsWith("Organization imported from")
+    ) {
         $("[data-process='profile-incomplete']").show();
     } else {
         $("[data-process='profile-incomplete']").hide();
@@ -89,8 +98,8 @@ exports.initialize = function () {
     $(".accept-bankruptcy").on("click", function (e) {
         e.preventDefault();
         $(this).closest(".alert").hide();
-        $('.bankruptcy-loader').show();
-        setTimeout(pointer.fast_forward_pointer, 1000);
+        $(".bankruptcy-loader").show();
+        setTimeout(unread_ops.mark_all_as_read, 1000);
         resize_app();
     });
 

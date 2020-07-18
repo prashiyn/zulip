@@ -1,10 +1,9 @@
 import sys
-from unittest import TestCase
 from io import StringIO
+from typing import Any, Callable, Dict, Iterable, List, Tuple, TypeVar
 
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.type_debug import print_types
-
-from typing import Any, Callable, Dict, Iterable, Tuple, TypeVar, List
 
 T = TypeVar('T')
 
@@ -14,7 +13,7 @@ def add(x: Any=0, y: Any=0) -> Any:
 def to_dict(v: Iterable[Tuple[Any, Any]]=[]) -> Dict[Any, Any]:
     return dict(v)
 
-class TypesPrintTest(TestCase):
+class TypesPrintTest(ZulipTestCase):
 
     # These 2 methods are needed to run tests with our custom test-runner
     def _pre_setup(self) -> None:

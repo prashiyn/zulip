@@ -173,9 +173,9 @@ boolean field, `mandatory_topics`, to the Realm model in
 
 class Realm(models.Model):
     # ...
-    emails_restricted_to_domains = models.BooleanField(default=True) # type: bool
-    invite_required = models.BooleanField(default=False) # type: bool
-+   mandatory_topics = models.BooleanField(default=False) # type: bool
+    emails_restricted_to_domains: bool = models.BooleanField(default=True)
+    invite_required: bool = models.BooleanField(default=False)
++   mandatory_topics: bool = models.BooleanField(default=False)
 ```
 
 The Realm model also contains an attribute, `property_types`, which
@@ -293,9 +293,10 @@ active users in a realm.
 
     # zerver/lib/actions.py
 
-    def do_set_realm_property(realm: Realm, name: str, value: bool) -> None:
-      """Takes in a realm object, the name of an attribute to update, and the
-      value to update.
+    def do_set_realm_property(realm: Realm, name: str, value: bool,
+                              acting_user: Optional[UserProfile]=None) -> None:
+      """Takes in a realm object, the name of an attribute to update, the
+         value to update and and the user who initiated the update.
       """
       property_type = Realm.property_types[name]
       assert isinstance(value, property_type), (
@@ -405,12 +406,15 @@ annotation).
 
 # zerver/views/realm.py
 
-def update_realm(request, user_profile, name=REQ(validator=check_string, default=None),
-             # ...,
-+            mandatory_topics=REQ(validator=check_bool, default=None),
-             # ...):
-+            # type: (HttpRequest, UserProfile, ..., Optional[bool], ...
-  # ...
+ def update_realm(
+     request: HttpRequest,
+     user_profile: UserProfile,
+     name: Optional[str] = REQ(validator=check_string, default=None),
+     # ...
++    mandatory_topics: Optional[bool] = REQ(validator=check_bool, default=None),
+     # ...
+ ):
+     # ...
 ```
 
 If this feature fits the `property_types` framework and does
@@ -450,7 +454,7 @@ with the new value. E.g., for `authentication_methods`, we created
     # ...
     # ...
     if authentication_methods is not None and realm.authentication_methods_dict() != authentication_methods:
-            do_set_realm_authentication_methods(realm, authentication_methods)
+            do_set_realm_authentication_methods(realm, authentication_methods, acting_user=user_profile)
             data['authentication_methods'] = authentication_methods
     # ...
 

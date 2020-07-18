@@ -2,9 +2,15 @@ from typing import Any, Dict, List
 
 from django.core.management.base import BaseCommand
 
-from zerver.lib.actions import bulk_add_subscriptions, do_add_reaction, \
-    do_change_avatar_fields, do_create_user, do_send_messages, ensure_stream, \
-    internal_prep_stream_message
+from zerver.lib.actions import (
+    bulk_add_subscriptions,
+    do_add_reaction,
+    do_change_avatar_fields,
+    do_create_user,
+    do_send_messages,
+    ensure_stream,
+    internal_prep_stream_message,
+)
 from zerver.lib.emoji import emoji_name_to_emoji_code
 from zerver.lib.upload import upload_avatar_image
 from zerver.models import Message, UserProfile, get_realm
@@ -32,19 +38,19 @@ From image editing program:
 
     def set_avatar(self, user: UserProfile, filename: str) -> None:
         upload_avatar_image(open(filename, 'rb'), user, user)
-        do_change_avatar_fields(user, UserProfile.AVATAR_FROM_USER)
+        do_change_avatar_fields(user, UserProfile.AVATAR_FROM_USER, acting_user=None)
 
     def add_message_formatting_conversation(self) -> None:
         realm = get_realm('zulip')
-        stream = ensure_stream(realm, 'zulip features')
+        stream = ensure_stream(realm, 'zulip features', acting_user=None)
 
         UserProfile.objects.filter(email__contains='stage').delete()
-        starr = do_create_user('1@stage.example.com', 'password', realm, 'Ada Starr', '')
+        starr = do_create_user('1@stage.example.com', 'password', realm, 'Ada Starr', acting_user=None)
         self.set_avatar(starr, 'static/images/characters/starr.png')
-        fisher = do_create_user('2@stage.example.com', 'password', realm, 'Bel Fisher', '')
+        fisher = do_create_user('2@stage.example.com', 'password', realm, 'Bel Fisher', acting_user=None)
         self.set_avatar(fisher, 'static/images/characters/fisher.png')
-        twitter_bot = do_create_user('3@stage.example.com', 'password', realm, 'Twitter Bot', '',
-                                     bot_type=UserProfile.DEFAULT_BOT)
+        twitter_bot = do_create_user('3@stage.example.com', 'password', realm, 'Twitter Bot',
+                                     bot_type=UserProfile.DEFAULT_BOT, acting_user=None)
         self.set_avatar(twitter_bot, 'static/images/features/twitter.png')
 
         bulk_add_subscriptions([stream], list(UserProfile.objects.filter(realm=realm)))
@@ -79,7 +85,7 @@ From image editing program:
 
         messages = [internal_prep_stream_message(
             realm, message['sender'], stream,
-            'message formatting', message['content']
+            'message formatting', message['content'],
         ) for message in staged_messages]
 
         message_ids = do_send_messages(messages)

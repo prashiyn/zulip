@@ -1,8 +1,6 @@
-# Delete stream
+# Delete a stream
 
-[Delete the stream](/help/delete-a-stream) with the ID `stream_id`.
-
-`DELETE {{ api_url }}/v1/streams/{stream_id}`
+{generate_api_description(/streams/{stream_id}:delete)}
 
 ## Usage examples
 
@@ -17,17 +15,13 @@
 
 {end_tabs}
 
-## Arguments
+## Parameters
 
-**Note**: The following arguments are all URL query parameters.
+**Note**: The following parameters are all URL query parameters.
 
 {generate_api_arguments_table|zulip.yaml|/streams/{stream_id}:delete}
 
 ## Response
-
-#### Return values
-
-* `stream_id`: The ID of a stream.
 
 #### Example response
 

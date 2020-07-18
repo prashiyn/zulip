@@ -136,6 +136,8 @@
 * [Add custom emoji](/help/add-custom-emoji)
 * [Configure authentication methods](/help/configure-authentication-methods)
 * [Add a custom linkification filter](/help/add-a-custom-linkification-filter)
+* [Message retention policy](/help/message-retention-policy)
+* [SAML authentication](/help/saml-authentication)
 
 ## Users & bots
 * [Invite new users](/help/invite-new-users)
@@ -161,3 +163,6 @@
 * [Change the privacy of a stream](/help/change-the-privacy-of-a-stream)
 * [Add or remove users from a stream](/help/add-or-remove-users-from-a-stream)
 * [Stream posting policy](/help/stream-sending-policy)
+
+## Support
+* [Contact support](/help/contact-support)

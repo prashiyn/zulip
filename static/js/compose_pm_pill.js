@@ -44,16 +44,14 @@ exports.has_unconverted_data = function () {
 exports.get_user_ids_string = function () {
     const user_ids = exports.get_user_ids();
     const sorted_user_ids = util.sorted_ids(user_ids);
-    const user_ids_string = sorted_user_ids.join(',');
+    const user_ids_string = sorted_user_ids.join(",");
     return user_ids_string;
 };
 
 exports.get_emails = function () {
     // return something like "alice@example.com,bob@example.com"
     const user_ids = exports.get_user_ids();
-    const emails = user_ids.map(function (id) {
-        return people.get_by_user_id(id).email;
-    }).join(",");
+    const emails = user_ids.map((id) => people.get_by_user_id(id).email).join(",");
     return emails;
 };
 

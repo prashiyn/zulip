@@ -1,8 +1,6 @@
-# Delete a queue
+# Delete an event queue
 
-Delete a previously registered queue.
-
-`DELETE {{ api_url }}/v1/events`
+{generate_api_description(/events:delete)}
 
 ## Usage examples
 
@@ -15,29 +13,7 @@ Delete a previously registered queue.
 
 More examples and documentation can be found [here](https://github.com/zulip/zulip-js).
 
-```js
-const zulip = require('zulip-js');
-
-// Pass the path to your zuliprc file here.
-const config = {
-    zuliprc: 'zuliprc',
-};
-
-zulip(config).then((client) => {
-    // Register a queue
-    const queueParams = {
-        event_types: ['message']
-    };
-    client.queues.register(queueParams).then((res) => {
-        // Delete a queue
-        const deregisterParams = {
-            queue_id: res.queue_id,
-        };
-        client.queues.deregister(deregisterParams).then(console.log);
-    });
-});
-
-```
+{generate_code_example(javascript)|/events:delete|example}
 
 {tab|curl}
 
@@ -45,7 +21,7 @@ zulip(config).then((client) => {
 
 {end_tabs}
 
-## Arguments
+## Parameters
 
 {generate_api_arguments_table|zulip.yaml|/events:delete}
 

@@ -1,4 +1,4 @@
-const render_admin_export_list = require('../templates/admin_export_list.hbs');
+const render_admin_export_list = require("../templates/admin_export_list.hbs");
 
 const meta = {
     loaded: false,
@@ -6,18 +6,6 @@ const meta = {
 
 exports.reset = function () {
     meta.loaded = false;
-};
-
-exports.clear_success_banner = function () {
-    const export_status = $('#export_status');
-    if (export_status.hasClass('alert-success')) {
-        // Politely remove our success banner if the export
-        // finishes before the view is closed.
-        export_status.fadeTo(200, 0);
-        setTimeout(function () {
-            export_status.hide();
-        }, 205);
-    }
 };
 
 function sort_user(a, b) {
@@ -36,24 +24,39 @@ exports.populate_exports_table = function (exports) {
         return;
     }
 
-    const exports_table = $('#admin_exports_table').expectOne();
+    const exports_table = $("#admin_exports_table").expectOne();
     list_render.create(exports_table, Object.values(exports), {
         name: "admin_exports_list",
         modifier: function (data) {
-            if (data.deleted_timestamp === null) {
-                return render_admin_export_list({
-                    realm_export: {
-                        id: data.id,
-                        acting_user: people.get_full_name(data.acting_user_id),
-                        // Convert seconds -> milliseconds
-                        event_time: timerender.last_seen_status_from_date(
-                            new XDate(data.export_time * 1000)
-                        ),
-                        url: data.export_url,
-                    },
-                });
+            let failed_timestamp = data.failed_timestamp;
+            let deleted_timestamp = data.deleted_timestamp;
+
+            if (failed_timestamp !== null) {
+                failed_timestamp = timerender.last_seen_status_from_date(
+                    new XDate(failed_timestamp * 1000),
+                );
             }
-            return "";
+
+            if (deleted_timestamp !== null) {
+                deleted_timestamp = timerender.last_seen_status_from_date(
+                    new XDate(deleted_timestamp * 1000),
+                );
+            }
+
+            return render_admin_export_list({
+                realm_export: {
+                    id: data.id,
+                    acting_user: people.get_full_name(data.acting_user_id),
+                    // Convert seconds -> milliseconds
+                    event_time: timerender.last_seen_status_from_date(
+                        new XDate(data.export_time * 1000),
+                    ),
+                    url: data.export_url,
+                    time_failed: failed_timestamp,
+                    pending: data.pending,
+                    time_deleted: deleted_timestamp,
+                },
+            });
         },
         filter: {
             element: exports_table.closest(".settings-section").find(".search"),
@@ -69,21 +72,33 @@ exports.populate_exports_table = function (exports) {
         sort_fields: {
             user: sort_user,
         },
+        simplebar_container: $("#data-exports .progressive-table-wrapper"),
     });
+
+    const spinner = $(".export_row .export_url_spinner");
+    if (spinner.length) {
+        loading.make_indicator(spinner);
+    } else {
+        loading.destroy_indicator(spinner);
+    }
 };
 
 exports.set_up = function () {
     meta.loaded = true;
 
-    $("#export-data").on('click', function (e) {
+    $("#export-data").on("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
-        const export_status = $('#export_status');
+        const export_status = $("#export_status");
 
         channel.post({
-            url: '/json/export/realm',
+            url: "/json/export/realm",
             success: function () {
-                ui_report.success(i18n.t("Export started. Check back in a few minutes."), export_status);
+                ui_report.success(
+                    i18n.t("Export started. Check back in a few minutes."),
+                    export_status,
+                    4000,
+                );
             },
             error: function (xhr) {
                 ui_report.error(i18n.t("Export failed"), xhr, export_status);
@@ -93,19 +108,19 @@ exports.set_up = function () {
 
     // Do an initial population of the table
     channel.get({
-        url: '/json/export/realm',
+        url: "/json/export/realm",
         success: function (data) {
             exports.populate_exports_table(data.exports);
         },
     });
 
-    $('.admin_exports_table').on('click', '.delete', function (e) {
+    $(".admin_exports_table").on("click", ".delete", function (e) {
         e.preventDefault();
         e.stopPropagation();
         const btn = $(this);
 
         channel.del({
-            url: '/json/export/realm/' + encodeURIComponent(btn.attr('data-export-id')),
+            url: "/json/export/realm/" + encodeURIComponent(btn.attr("data-export-id")),
             error: function (xhr) {
                 ui_report.generic_row_button_error(xhr, btn);
             },

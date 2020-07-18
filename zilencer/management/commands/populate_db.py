@@ -1,11 +1,11 @@
 import itertools
 import os
 import random
-from typing import Any, Callable, Dict, List, \
-    Mapping, Sequence, Tuple
-
-import ujson
 from datetime import datetime
+from typing import Any, Callable, Dict, List, Mapping, Sequence, Tuple
+
+import pylibmc
+import ujson
 from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.management import call_command
@@ -13,30 +13,54 @@ from django.core.management.base import BaseCommand, CommandParser
 from django.db.models import F, Max
 from django.utils.timezone import now as timezone_now
 from django.utils.timezone import timedelta as timezone_timedelta
-import pylibmc
 
-from zerver.lib.actions import STREAM_ASSIGNMENT_COLORS, check_add_realm_emoji, \
-    do_change_is_admin, do_send_messages, do_update_user_custom_profile_data_if_changed, \
-    try_add_realm_custom_profile_field, try_add_realm_default_custom_profile_field
+from scripts.lib.zulip_tools import get_or_create_dev_uuid_var_path
+from zerver.lib.actions import (
+    STREAM_ASSIGNMENT_COLORS,
+    check_add_realm_emoji,
+    do_change_user_role,
+    do_send_messages,
+    do_update_user_custom_profile_data_if_changed,
+    try_add_realm_custom_profile_field,
+    try_add_realm_default_custom_profile_field,
+)
 from zerver.lib.bulk_create import bulk_create_streams
 from zerver.lib.cache import cache_set
-from zerver.lib.generate_test_data import create_test_data
+from zerver.lib.generate_test_data import create_test_data, generate_topics
 from zerver.lib.onboarding import create_if_missing_realm_internal_bots
 from zerver.lib.push_notifications import logger as push_notifications_logger
 from zerver.lib.server_initialization import create_internal_realm, create_users
 from zerver.lib.storage import static_path
-from zerver.lib.users import add_service
+from zerver.lib.types import ProfileFieldData
 from zerver.lib.url_preview.preview import CACHE_NAME as PREVIEW_CACHE_NAME
 from zerver.lib.user_groups import create_user_group
+from zerver.lib.users import add_service
 from zerver.lib.utils import generate_api_key
-from zerver.models import CustomProfileField, DefaultStream, Message, Realm, RealmAuditLog, \
-    RealmDomain, Recipient, Service, Stream, Subscription, \
-    UserMessage, UserPresence, UserProfile, Huddle, Client, \
-    get_client, get_huddle, get_realm, get_stream, \
-    get_user, get_user_by_delivery_email, get_user_profile_by_id
-from zerver.lib.types import ProfileFieldData
-
-from scripts.lib.zulip_tools import get_or_create_dev_uuid_var_path
+from zerver.models import (
+    AlertWord,
+    Client,
+    CustomProfileField,
+    DefaultStream,
+    Huddle,
+    Message,
+    Realm,
+    RealmAuditLog,
+    RealmDomain,
+    Recipient,
+    Service,
+    Stream,
+    Subscription,
+    UserMessage,
+    UserPresence,
+    UserProfile,
+    get_client,
+    get_huddle,
+    get_realm,
+    get_stream,
+    get_user,
+    get_user_by_delivery_email,
+    get_user_profile_by_id,
+)
 
 settings.TORNADO_SERVER = None
 # Disable using memcached caches to avoid 'unsupported pickle
@@ -44,7 +68,7 @@ settings.TORNADO_SERVER = None
 # from `run-dev.py`.
 default_cache = settings.CACHES['default']
 settings.CACHES['default'] = {
-    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'
+    'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
 }
 
 def clear_database() -> None:
@@ -100,6 +124,41 @@ def subscribe_users_to_streams(realm: Realm, stream_dict: Dict[str, Dict[str, An
     Subscription.objects.bulk_create(subscriptions_to_add)
     RealmAuditLog.objects.bulk_create(all_subscription_logs)
 
+def create_alert_words(realm_id: int) -> None:
+    user_ids = UserProfile.objects.filter(
+        realm_id=realm_id,
+        is_bot=False,
+        is_active=True,
+    ).values_list('id', flat=True)
+
+    alert_words = [
+        'algorithms',
+        'complexity',
+        'founded',
+        'galaxy',
+        'grammar',
+        'illustrious',
+        'natural',
+        'objective',
+        'people',
+        'robotics',
+        'study',
+    ]
+
+    recs: List[AlertWord] = []
+    for user_id in user_ids:
+        random.shuffle(alert_words)
+        for i in range(4):
+            recs.append(
+                AlertWord(
+                    realm_id=realm_id,
+                    user_profile_id=user_id,
+                    word = alert_words[i],
+                )
+            )
+
+    AlertWord.objects.bulk_create(recs)
+
 class Command(BaseCommand):
     help = "Populate a test database"
 
@@ -133,6 +192,12 @@ class Command(BaseCommand):
                             type=int,
                             default=0,
                             help='The number of extra streams to create')
+
+        parser.add_argument('--max-topics',
+                            dest='max_topics',
+                            type=int,
+                            default=None,
+                            help='The number of maximum topics to create')
 
         parser.add_argument('--huddles',
                             dest='num_huddles',
@@ -191,6 +256,11 @@ class Command(BaseCommand):
         if options["test_suite"]:
             random.seed(0)
 
+        # If max_topics is not set, we set it proportional to the
+        # number of messages.
+        if options["max_topics"] is None:
+            options["max_topics"] = 1 + options["num_messages"] // 100
+
         if options["delete"]:
             # Start by clearing all the data in our database
             clear_database()
@@ -227,6 +297,7 @@ class Command(BaseCommand):
                 ("King Hamlet", "hamlet@zulip.com"),
                 ("aaron", "AARON@zulip.com"),
                 ("Polonius", "polonius@zulip.com"),
+                ("Desdemona", "desdemona@zulip.com"),
             ]
 
             # For testing really large batches:
@@ -234,11 +305,11 @@ class Command(BaseCommand):
             # functions somewhat realistic.  We'll still create 1000 users
             # like Extra222 User for some predicability.
             num_names = options['extra_users']
-            num_boring_names = 1000
+            num_boring_names = 300
 
             for i in range(min(num_names, num_boring_names)):
-                full_name = 'Extra%03d User' % (i,)
-                names.append((full_name, 'extrauser%d@zulip.com' % (i,)))
+                full_name = f'Extra{i:03} User'
+                names.append((full_name, f'extrauser{i}@zulip.com'))
 
             if num_names > num_boring_names:
                 fnames = ['Amber', 'Arpita', 'Bob', 'Cindy', 'Daniela', 'Dan', 'Dinesh',
@@ -266,9 +337,12 @@ class Command(BaseCommand):
             create_users(zulip_realm, names, tos_version=settings.TOS_VERSION)
 
             iago = get_user_by_delivery_email("iago@zulip.com", zulip_realm)
-            do_change_is_admin(iago, True)
+            do_change_user_role(iago, UserProfile.ROLE_REALM_ADMINISTRATOR, acting_user=None)
             iago.is_staff = True
             iago.save(update_fields=['is_staff'])
+
+            desdemona = get_user_by_delivery_email("desdemona@zulip.com", zulip_realm)
+            do_change_user_role(desdemona, UserProfile.ROLE_REALM_OWNER, acting_user=None)
 
             guest_user = get_user_by_delivery_email("polonius@zulip.com", zulip_realm)
             guest_user.role = UserProfile.ROLE_GUEST
@@ -281,7 +355,7 @@ class Command(BaseCommand):
                 ("Zulip Default Bot", "default-bot@zulip.com"),
             ]
             for i in range(options["extra_bots"]):
-                zulip_realm_bots.append(('Extra Bot %d' % (i,), 'extrabot%d@zulip.com' % (i,)))
+                zulip_realm_bots.append((f'Extra Bot {i}', f'extrabot{i}@zulip.com'))
 
             create_users(zulip_realm, zulip_realm_bots, bot_type=UserProfile.DEFAULT_BOT)
 
@@ -297,7 +371,7 @@ class Command(BaseCommand):
             aaron = get_user_by_delivery_email("AARON@zulip.com", zulip_realm)
 
             zulip_outgoing_bots = [
-                ("Outgoing Webhook", "outgoing-webhook@zulip.com")
+                ("Outgoing Webhook", "outgoing-webhook@zulip.com"),
             ]
             create_users(zulip_realm, zulip_outgoing_bots,
                          bot_type=UserProfile.OUTGOING_WEBHOOK_BOT, bot_owner=aaron)
@@ -305,7 +379,7 @@ class Command(BaseCommand):
             add_service("outgoing-webhook", user_profile=outgoing_webhook, interface=Service.GENERIC,
                         base_url="http://127.0.0.1:5002", token=generate_api_key())
 
-            # Add the realm internl bots to each realm.
+            # Add the realm internal bots to each realm.
             create_if_missing_realm_internal_bots()
 
             # Create public streams.
@@ -315,7 +389,7 @@ class Command(BaseCommand):
                 "Denmark": {"description": "A Scandinavian country"},
                 "Scotland": {"description": "Located in the United Kingdom"},
                 "Venice": {"description": "A northeastern Italian city"},
-                "Rome": {"description": "Yet another Italian city", "is_web_public": True}
+                "Rome": {"description": "Yet another Italian city", "is_web_public": True},
             }
 
             bulk_create_streams(zulip_realm, stream_dict)
@@ -345,12 +419,13 @@ class Command(BaseCommand):
                     'prospero@zulip.com': ['Verona', 'Denmark', 'Scotland', 'Venice'],
                     'ZOE@zulip.com': ['Verona', 'Denmark', 'Scotland', 'Venice', 'Rome'],
                     'polonius@zulip.com': ['Verona'],
+                    'desdemona@zulip.com': ['Verona', 'Denmark', 'Venice'],
                 }
 
                 for profile in profiles:
                     email = profile.delivery_email
                     if email not in subscriptions_map:
-                        raise Exception('Subscriptions not listed for user %s' % (email,))
+                        raise Exception(f'Subscriptions not listed for user {email}')
 
                     for stream_name in subscriptions_map[email]:
                         stream = Stream.objects.get(name=stream_name)
@@ -483,6 +558,8 @@ class Command(BaseCommand):
         personals_pairs = [random.sample(user_profiles_ids, 2)
                            for i in range(options["num_personals"])]
 
+        create_alert_words(zulip_realm.id)
+
         # Generate a new set of test data.
         create_test_data()
 
@@ -494,17 +571,6 @@ class Command(BaseCommand):
             urls_with_preview_data = ujson.load(f)
             for url in urls_with_preview_data:
                 cache_set(url, urls_with_preview_data[url], PREVIEW_CACHE_NAME)
-
-        threads = options["threads"]
-        jobs: List[Tuple[int, List[List[int]], Dict[str, Any], Callable[[str], int], int]] = []
-        for i in range(threads):
-            count = options["num_messages"] // threads
-            if i < options["num_messages"] % threads:
-                count += 1
-            jobs.append((count, personals_pairs, options, self.stdout.write, random.randint(0, 10**10)))
-
-        for job in jobs:
-            generate_and_send_messages(job)
 
         if options["delete"]:
             if options["test_suite"]:
@@ -538,7 +604,7 @@ class Command(BaseCommand):
                     "social": {"description": "For socializing"},
                     "test": {"description": "For testing `code`"},
                     "errors": {"description": "For errors"},
-                    "sales": {"description": "For sales discussion"}
+                    "sales": {"description": "For sales discussion"},
                 }
 
                 # Calculate the maximum number of digits in any extra stream's
@@ -570,17 +636,6 @@ class Command(BaseCommand):
                 # Now subscribe everyone to these streams
                 subscribe_users_to_streams(zulip_realm, zulip_stream_dict)
 
-                # These bots are not needed by the test suite
-                internal_zulip_users_nosubs = [
-                    ("Zulip Commit Bot", "commit-bot@zulip.com"),
-                    ("Zulip Trac Bot", "trac-bot@zulip.com"),
-                    ("Zulip Nagios Bot", "nagios-bot@zulip.com"),
-                ]
-                create_users(zulip_realm, internal_zulip_users_nosubs, bot_type=UserProfile.DEFAULT_BOT)
-
-            # Mark all messages as read
-            UserMessage.objects.all().update(flags=UserMessage.flags.read)
-
             if not options["test_suite"]:
                 # Update pointer of each user to point to the last message in their
                 # UserMessage rows with sender_id=user_profile_id.
@@ -597,7 +652,47 @@ class Command(BaseCommand):
                 # We populate the analytics database here for
                 # development purpose only
                 call_command('populate_analytics_db')
+
+        threads = options["threads"]
+        jobs: List[Tuple[int, List[List[int]], Dict[str, Any], Callable[[str], int], int]] = []
+        for i in range(threads):
+            count = options["num_messages"] // threads
+            if i < options["num_messages"] % threads:
+                count += 1
+            jobs.append((count, personals_pairs, options, self.stdout.write, random.randint(0, 10**10)))
+
+        for job in jobs:
+            generate_and_send_messages(job)
+
+        if options["delete"]:
+            if not options['test_suite']:
+                # These bots are not needed by the test suite
+                # Also, we don't want interacting with each other
+                # in dev setup.
+                internal_zulip_users_nosubs = [
+                    ("Zulip Commit Bot", "commit-bot@zulip.com"),
+                    ("Zulip Trac Bot", "trac-bot@zulip.com"),
+                    ("Zulip Nagios Bot", "nagios-bot@zulip.com"),
+                ]
+                create_users(zulip_realm, internal_zulip_users_nosubs, bot_type=UserProfile.DEFAULT_BOT)
+
+            mark_all_messages_as_read()
             self.stdout.write("Successfully populated test database.\n")
+
+def mark_all_messages_as_read() -> None:
+    '''
+    We want to keep these two flags intact after we
+    create messages:
+
+        has_alert_word
+        is_private
+
+    But we will mark all messages as read to save a step for users.
+    '''
+    # Mark all messages as read
+    UserMessage.objects.all().update(
+        flags=F('flags').bitor(UserMessage.flags.read),
+    )
 
 recipient_hash: Dict[int, Recipient] = {}
 def get_recipient_by_id(rid: int) -> Recipient:
@@ -632,6 +727,11 @@ def generate_and_send_messages(data: Tuple[int, Sequence[Sequence[int]], Mapping
     for h in recipient_huddles:
         huddle_members[h] = [s.user_profile.id for s in
                              Subscription.objects.filter(recipient_id=h)]
+
+    # Generate different topics for each stream
+    possible_topics = dict()
+    for stream_id in recipient_streams:
+        possible_topics[stream_id] = generate_topics(options["max_topics"])
 
     message_batch_size = options['batch_size']
     num_messages = 0
@@ -678,11 +778,10 @@ def generate_and_send_messages(data: Tuple[int, Sequence[Sequence[int]], Mapping
             message.sender = get_user_profile_by_id(personals_pair[1])
             saved_data['personals_pair'] = personals_pair
         elif message_type == Recipient.STREAM:
-            stream = Stream.objects.get(id=message.recipient.type_id)
             # Pick a random subscriber to the stream
             message.sender = random.choice(Subscription.objects.filter(
                 recipient=message.recipient)).user_profile
-            message.subject = stream.name + str(random.randint(1, 3))
+            message.subject = random.choice(possible_topics[message.recipient.id])
             saved_data['subject'] = message.subject
 
         message.date_sent = choose_date_sent(num_messages, tot_messages, options['threads'])

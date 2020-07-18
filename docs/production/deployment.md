@@ -21,6 +21,21 @@ and then
 [continue the normal installation instructions](../production/install.html#step-2-install-zulip).
 You can also [upgrade Zulip from Git](../production/upgrade-or-modify.html#upgrading-from-a-git-repository).
 
+The most common use case for this is upgrading to `master` to get a
+feature that hasn't made it into an official release yet (often
+support for a new base OS release).  See [upgrading to
+master][upgrade-to-master] for notes on how `master` works and the
+support story for it, and [upgrading to future
+releases][upgrade-to-future-release] for notes on upgrading Zulip
+afterwards.
+
+In particular, we are always very glad to investigate problems with
+installing Zulip from `master`; they are rare and help us ensure that
+our next major release has a reliable install experience.
+
+[upgrade-to-master]: ../production/upgrade-or-modify.html#upgrading-to-master
+[upgrade-to-future-release]: ../production/upgrade-or-modify.html#upgrading-to-future-releases
+
 ## Zulip in Docker
 
 Zulip has an officially supported, experimental
@@ -60,7 +75,7 @@ though it's also possible to subclass some of the lower-level
 manifests defined in that directory if you want to customize.  A good
 example of doing this is in the
 [zulip_ops puppet configuration][zulipchat-puppet] that we use as part
-of managing chat.zulip.org and zulipchat.com.
+of managing chat.zulip.org and zulip.com.
 
 ### Using Zulip with Amazon RDS as the database
 
@@ -79,14 +94,14 @@ below.
 #### Step 1: Setup Zulip
 
 Follow the [standard instructions](../production/install.md), with one
-change.  When running the installer, pass the `--remote-postgres`
+change.  When running the installer, pass the `--no-init-db`
 flag, e.g.:
 
 ```
 sudo -s  # If not already root
 ./zulip-server-*/scripts/setup/install --certbot \
     --email=YOUR_EMAIL --hostname=YOUR_HOSTNAME \
-    --remote-postgres --postgres-missing-dictionaries
+    --no-init-db --postgres-missing-dictionaries
 ```
 
 The script also installs and starts Postgres on the server by
@@ -209,16 +224,19 @@ instead of HTTPS.
 
 ### nginx configuration
 
-You can look at our
-[nginx reverse proxy configuration][nginx-loadbalancer] to see an
-example of how to do this properly (the various include files are
-available via the `zulip::nginx` puppet module).  Or modify this example:
+For `nginx` configuration, there's two things you need to setup:
+* The root `nginx.conf` file.  We recommend using
+  `/etc/nginx/nginx.conf` from your Zulip server for our recommended
+  settings.  E.g. if you don't set `client_max_body_size`, it won't be
+  possible to upload large files to your Zulip server.
+* The `nginx` site-specific configuration (in
+  `/etc/nginx/sites-available`) for the Zulip app.  You can look at
+  our [nginx reverse proxy configuration][nginx-loadbalancer] to see
+  an example of how to do this properly (the various include files are
+  available via the `zulip::nginx` puppet module).  Or modify this
+  example:
 
 ```
-map $http_upgrade $connection_upgrade {
-        default upgrade;
-        ''      close;
-}
 server {
         listen                  443 ssl;
         server_name             zulip.example.net;
@@ -230,8 +248,6 @@ server {
         location / {
                 proxy_set_header        X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header        Host $http_host;
-                proxy_set_header        Upgrade $http_upgrade;
-                proxy_set_header        Connection $connection_upgrade;
                 proxy_http_version      1.1;
                 proxy_buffering         off;
                 proxy_read_timeout      20m;
@@ -241,13 +257,75 @@ server {
 ```
 
 Don't forget to update `server_name`, `ssl_certificate`,
-`ssl_certificate_key` and `proxy_pass` with proper values.
+`ssl_certificate_key` and `proxy_pass` with the appropriate values for
+your installation.
 
 [nginx-proxy-config]: https://github.com/zulip/zulip/blob/master/puppet/zulip/files/nginx/zulip-include-common/proxy
 [nginx-proxy-longpolling-config]: https://github.com/zulip/zulip/blob/master/puppet/zulip/files/nginx/zulip-include-common/proxy_longpolling
 [voyager.pp]: https://github.com/zulip/zulip/blob/master/puppet/zulip/manifests/voyager.pp
 [zulipchat-puppet]: https://github.com/zulip/zulip/tree/master/puppet/zulip_ops/manifests
 [nginx-loadbalancer]: https://github.com/zulip/zulip/blob/master/puppet/zulip_ops/files/nginx/sites-available/loadbalancer
+
+### Apache2 configuration
+
+Below is a working example of a full Apache2 configuration. It assumes
+that your Zulip sits at `http://localhost:5080`. You first need to
+make the following changes in two configuration files.
+
+1. Follow the instructions for [Configure Zulip to allow HTTP](#configuring-zulip-to-allow-http).
+
+2. Add the following to `/etc/zulip/settings.py`:
+    ```
+    EXTERNAL_HOST = 'zulip.example.com'
+    ALLOWED_HOSTS = ['zulip.example.com', '127.0.0.1']
+    USE_X_FORWARDED_HOST = True
+    ```
+
+
+3. Restart your Zulip server with `/home/zulip/deployments/current/restart-server`.
+
+4. Create an Apache2 virtual host configuration file, similar to the
+   following.  Place it the appropriate path for your Apache2
+   installation and enable it (E.g. if you use Debian or Ubuntu, then
+   place it in `/etc/apache2/sites-available/zulip.example.com.conf`
+   and then run `a2ensite zulip.example.com && systemctl reload
+   apache2`):
+
+    ```
+    <VirtualHost *:80>
+        ServerName zulip.example.com
+        RewriteEngine On
+        RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+    </VirtualHost>
+
+    <VirtualHost *:443>
+      ServerName zulip.example.com
+
+      RequestHeader set "X-Forwarded-Proto" expr=%{REQUEST_SCHEME}
+      RequestHeader set "X-Forwarded-SSL" expr=%{HTTPS}
+
+      RewriteEngine On
+      RewriteRule /(.*)           http://localhost:5080/$1 [P,L]
+
+      <Location />
+        Require all granted
+        ProxyPass  http://localhost:5080/  timeout=300
+        ProxyPassReverse  http://localhost:5080/
+        ProxyPassReverseCookieDomain  127.0.0.1  zulip.example.com
+      </Location>
+
+      SSLEngine on
+      SSLProxyEngine on
+      SSLCertificateFile /etc/letsencrypt/live/zulip.example.com/fullchain.pem
+      SSLCertificateKeyFile /etc/letsencrypt/live/zulip.example.com/privkey.pem
+      SSLOpenSSLConfCmd DHParameters "/etc/nginx/dhparam.pem"
+      SSLProtocol all -SSLv3 -TLSv1 -TLSv1.1
+      SSLCipherSuite ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384
+      SSLHonorCipherOrder off
+      SSLSessionTickets off
+      Header set Strict-Transport-Security "max-age=31536000"
+    </VirtualHost>
+    ```
 
 ### HAProxy configuration
 

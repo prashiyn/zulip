@@ -15,6 +15,7 @@ function MessageListData(opts) {
     }
 
     this.filter = filter;
+    this.fetch_status = FetchStatus();
 }
 
 MessageListData.prototype = {
@@ -42,7 +43,7 @@ MessageListData.prototype = {
         if (this._selected_id === -1) {
             return;
         }
-        const ids = this._items.map(message => message.id);
+        const ids = this._items.map((message) => message.id);
 
         const i = ids.indexOf(this._selected_id);
         if (i === -1) {
@@ -157,7 +158,7 @@ MessageListData.prototype = {
     valid_non_duplicated_messages: function (messages) {
         const predicate = this._get_predicate();
         const self = this;
-        return messages.filter(msg => self.get(msg.id) === undefined && predicate(msg));
+        return messages.filter((msg) => self.get(msg.id) === undefined && predicate(msg));
     },
 
     filter_incoming: function (messages) {
@@ -167,9 +168,8 @@ MessageListData.prototype = {
 
     unmuted_messages: function (messages) {
         return messages.filter(
-            message =>
-                !muting.is_topic_muted(message.stream_id, message.topic) ||
-                message.mentioned
+            (message) =>
+                !muting.is_topic_muted(message.stream_id, message.topic) || message.mentioned,
         );
     },
 
@@ -181,7 +181,7 @@ MessageListData.prototype = {
     },
 
     first_unread_message_id: function () {
-        const first_unread = this._items.find(message => unread.message_unread(message));
+        const first_unread = this._items.find((message) => unread.message_unread(message));
 
         if (first_unread) {
             return first_unread.id;
@@ -230,7 +230,7 @@ MessageListData.prototype = {
         // bottom_messages regardless
         if (self.selected_id() === -1 && self.empty()) {
             const narrow_messages = self.filter_incoming(messages);
-            bottom_messages = narrow_messages.filter(msg => !self.get(msg.id));
+            bottom_messages = narrow_messages.filter((msg) => !self.get(msg.id));
         } else {
             // Filter out duplicates that are already in self, and all messages
             // that fail our filter predicate
@@ -281,17 +281,16 @@ MessageListData.prototype = {
         let viewable_messages;
         if (this.muting_enabled) {
             this._all_items = messages.concat(this._all_items);
-            this._all_items.sort(function (a, b) {return a.id - b.id;});
+            this._all_items.sort((a, b) => a.id - b.id);
 
             viewable_messages = this.unmuted_messages(messages);
             this._items = viewable_messages.concat(this._items);
-
         } else {
             viewable_messages = messages;
             this._items = messages.concat(this._items);
         }
 
-        this._items.sort(function (a, b) {return a.id - b.id;});
+        this._items.sort((a, b) => a.id - b.id);
         this._add_to_hash(messages);
         return viewable_messages;
     },
@@ -341,10 +340,10 @@ MessageListData.prototype = {
             msg_ids_to_remove.add(message.id);
         }
 
-        this._items = this._items.filter(message => !msg_ids_to_remove.has(message.id));
+        this._items = this._items.filter((message) => !msg_ids_to_remove.has(message.id));
         if (this.muting_enabled) {
             this._all_items = this._all_items.filter(
-                message => !msg_ids_to_remove.has(message.id)
+                (message) => !msg_ids_to_remove.has(message.id),
             );
         }
     },
@@ -356,7 +355,7 @@ MessageListData.prototype = {
         }
 
         const start_idx = this._lower_bound(start);
-        const end_idx   = this._lower_bound(end);
+        const end_idx = this._lower_bound(end);
         return this._items.slice(start_idx, end_idx + 1);
     },
 
@@ -369,8 +368,7 @@ MessageListData.prototype = {
         function less_func(msg, ref_id, a_idx) {
             if (self._is_localonly_id(msg.id)) {
                 // First non-local message before this one
-                const effective = self._next_nonlocal_message(self._items, a_idx,
-                                                              function (idx) { return idx - 1; });
+                const effective = self._next_nonlocal_message(self._items, a_idx, (idx) => idx - 1);
                 if (effective) {
                     // Turn the 10.02 in [11, 10.02, 12] into 11.02
                     const decimal = parseFloat((msg.id % 1).toFixed(0.02));
@@ -430,7 +428,7 @@ MessageListData.prototype = {
                 const item = items[potential_idx];
 
                 if (item === undefined) {
-                    blueslip.warn('Invalid potential_idx: ' + potential_idx);
+                    blueslip.warn("Invalid potential_idx: " + potential_idx);
                     continue;
                 }
 
@@ -471,7 +469,7 @@ MessageListData.prototype = {
 
     _add_to_hash: function (messages) {
         const self = this;
-        messages.forEach(function (elem) {
+        messages.forEach((elem) => {
             const id = parseFloat(elem.id);
             if (isNaN(id)) {
                 blueslip.fatal("Bad message id");
@@ -501,8 +499,6 @@ MessageListData.prototype = {
 
     change_message_id: function (old_id, new_id, opts) {
         // Update our local cache that uses the old id to the new id
-        function message_sort_func(a, b) {return a.id - b.id;}
-
         if (this._hash.has(old_id)) {
             const msg = this._hash.get(old_id);
             this._hash.delete(old_id);
@@ -522,35 +518,47 @@ MessageListData.prototype = {
             this._selected_id = new_id;
         }
 
+        this.reorder_messages(new_id, opts);
+    },
+
+    reorder_messages: function (new_id, opts) {
+        function message_sort_func(a, b) {
+            return a.id - b.id;
+        }
         // If this message is now out of order, re-order and re-render
         const self = this;
-        setTimeout(function () {
-            const current_message = self._hash.get(new_id);
-            const index = self._items.indexOf(current_message);
+        const current_message = self._hash.get(new_id);
+        const index = self._items.indexOf(current_message);
 
-            if (index === -1) {
-                if (!self.muting_enabled && opts.is_current_list()) {
-                    blueslip.error("Trying to re-order message but can't find message with new_id in _items!");
-                }
-                return;
+        if (index === -1) {
+            if (!self.muting_enabled && opts.is_current_list()) {
+                blueslip.error(
+                    "Trying to re-order message but can't find message with new_id in _items!",
+                );
+            }
+            return;
+        }
+
+        const next = self._next_nonlocal_message(self._items, index, (idx) => idx + 1);
+        const prev = self._next_nonlocal_message(self._items, index, (idx) => idx - 1);
+
+        if (
+            (next !== undefined && current_message.id > next.id) ||
+            (prev !== undefined && current_message.id < prev.id)
+        ) {
+            blueslip.debug("Changed message ID from server caused out-of-order list, reordering");
+            self._items.sort(message_sort_func);
+            if (self.muting_enabled) {
+                self._all_items.sort(message_sort_func);
             }
 
-            const next = self._next_nonlocal_message(self._items, index,
-                                                     function (idx) { return idx + 1; });
-            const prev = self._next_nonlocal_message(self._items, index,
-                                                     function (idx) { return idx - 1; });
-
-            if (next !== undefined && current_message.id > next.id ||
-                prev !== undefined && current_message.id < prev.id) {
-                blueslip.debug("Changed message ID from server caused out-of-order list, reordering");
-                self._items.sort(message_sort_func);
-                if (self.muting_enabled) {
-                    self._all_items.sort(message_sort_func);
-                }
-
-                opts.re_render();
-            }
-        }, 0);
+            // The data updates above need to happen synchronously,
+            // but the rerendering can be deferred.  It's unclear
+            // whether this deferral is necessary; it was present in
+            // the original 2013 local echo implementation but we
+            // don't have records for why we added it then.
+            setTimeout(opts.re_render, 0);
+        }
     },
 
     get_last_message_sent_by_me: function () {

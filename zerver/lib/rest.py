@@ -1,36 +1,39 @@
 from functools import wraps
-from typing import Any, Callable, Dict
+from typing import Any, Dict, cast
 
-from django.utils.module_loading import import_string
+from django.conf import settings
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.cache import add_never_cache_headers
+from django.utils.module_loading import import_string
 from django.views.decorators.csrf import csrf_exempt, csrf_protect
 
-from zerver.decorator import authenticated_json_view, authenticated_rest_api_view, \
-    process_as_post, authenticated_uploads_api_view, \
-    ReturnT
+from zerver.decorator import (
+    authenticated_json_view,
+    authenticated_rest_api_view,
+    authenticated_uploads_api_view,
+    process_as_post,
+)
 from zerver.lib.response import json_method_not_allowed, json_unauthorized
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
-from django.conf import settings
+from zerver.lib.types import ViewFuncT
 
 METHODS = ('GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH')
 FLAGS = ('override_api_url_scheme')
 
-def default_never_cache_responses(
-        view_func: Callable[..., HttpResponse]) -> Callable[..., HttpResponse]:
+def default_never_cache_responses(view_func: ViewFuncT) -> ViewFuncT:
     """Patched version of the standard Django never_cache_responses
     decorator that adds headers to a response so that it will never be
     cached, unless the view code has already set a Cache-Control
     header.
     """
     @wraps(view_func)
-    def _wrapped_view_func(request: HttpRequest, *args: Any, **kwargs: Any) -> ReturnT:
+    def _wrapped_view_func(request: HttpRequest, *args: object, **kwargs: object) -> HttpResponse:
         response = view_func(request, *args, **kwargs)
         if response.has_header("Cache-Control"):
             return response
 
         add_never_cache_headers(response)
         return response
-    return _wrapped_view_func
+    return cast(ViewFuncT, _wrapped_view_func)  # https://github.com/python/mypy/issues/1927
 
 @default_never_cache_responses
 @csrf_exempt
@@ -134,17 +137,16 @@ def rest_dispatch(request: HttpRequest, **kwargs: Any) -> HttpResponse:
         elif request.META.get('HTTP_AUTHORIZATION', None):
             # Wrap function with decorator to authenticate the user before
             # proceeding
-            view_kwargs = {}
-            if 'allow_incoming_webhooks' in view_flags:
-                view_kwargs['is_webhook'] = True
-            target_function = authenticated_rest_api_view(**view_kwargs)(target_function)  # type: ignore[arg-type] # likely mypy bug
+            target_function = authenticated_rest_api_view(
+                is_webhook='allow_incoming_webhooks' in view_flags,
+            )(target_function)
         # Pick a way to tell user they're not authed based on how the request was made
         else:
             # If this looks like a request from a top-level page in a
             # browser, send the user to the login page
             if 'text/html' in request.META.get('HTTP_ACCEPT', ''):
                 # TODO: It seems like the `?next=` part is unlikely to be helpful
-                return HttpResponseRedirect('%s?next=%s' % (settings.HOME_NOT_LOGGED_IN, request.path))
+                return HttpResponseRedirect(f'{settings.HOME_NOT_LOGGED_IN}?next={request.path}')
             # Ask for basic auth (email:apiKey)
             elif request.path.startswith("/api"):
                 return json_unauthorized()

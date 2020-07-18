@@ -1,11 +1,29 @@
 // These colors are used now for streams.
 const stream_colors = [
-    "#76ce90", "#fae589", "#a6c7e5", "#e79ab5",
-    "#bfd56f", "#f4ae55", "#b0a5fd", "#addfe5",
-    "#f5ce6e", "#c2726a", "#94c849", "#bd86e5",
-    "#ee7e4a", "#a6dcbf", "#95a5fd", "#53a063",
-    "#9987e1", "#e4523d", "#c2c2c2", "#4f8de4",
-    "#c6a8ad", "#e7cc4d", "#c8bebf", "#a47462",
+    "#76ce90",
+    "#fae589",
+    "#a6c7e5",
+    "#e79ab5",
+    "#bfd56f",
+    "#f4ae55",
+    "#b0a5fd",
+    "#addfe5",
+    "#f5ce6e",
+    "#c2726a",
+    "#94c849",
+    "#bd86e5",
+    "#ee7e4a",
+    "#a6dcbf",
+    "#95a5fd",
+    "#53a063",
+    "#9987e1",
+    "#e4523d",
+    "#c2c2c2",
+    "#4f8de4",
+    "#c6a8ad",
+    "#e7cc4d",
+    "#c8bebf",
+    "#a47462",
 ];
 
 // Shuffle our colors on page load to prevent
@@ -33,7 +51,7 @@ exports.claim_color = function (color) {
 };
 
 exports.claim_colors = function (subs) {
-    const colors = new Set(subs.map(sub => sub.color));
+    const colors = new Set(subs.map((sub) => sub.color));
     colors.forEach(exports.claim_color);
 };
 

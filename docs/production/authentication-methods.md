@@ -41,9 +41,13 @@ Zulip 2.1 and later supports SAML authentication, used by Okta,
 OneLogin, and many other IdPs (identity providers).  You can configure
 it as follows:
 
-1. These instructions assume you have an installed Zulip server.  You
-   can have created an organization already using EmailAuthBackend, or
-   plan to create the organization using SAML authentication.
+1. These instructions assume you have an installed Zulip server; if
+   you're using Zulip Cloud, see [this article][saml-help-center],
+   which also has IdP-side configuration advice for common IdPs.
+
+   You can have created a Zulip organization already using the default
+   EmailAuthBackend, or plan to create the organization using SAML
+   authentication.
 
 1. Tell your IdP how to find your Zulip server:
 
@@ -135,9 +139,57 @@ found at `https://yourzulipdomain.example.com/saml/metadata.xml`. You
 can use this for verifying your configuration or provide it to your
 IdP.
 
+[saml-help-center]: https://zulip.com/help/saml-authentication
+
+### IdP-initiated SSO
+
+The above configuration is sufficient for Service Provider initialized
+SSO, i.e. you can visit the Zulip webapp and click "Sign in with
+{IdP}" and it'll correctly start the authentication flow.  If you are
+not hosting multiple organizations, with Zulip 3.0+, the above
+configuration is also sufficient for Identity Provider initiated SSO,
+i.e. clicking a "Sign in to Zulip" button on the IdP's website can
+correctly authenticate the user to Zulip.
+
+If you're hosting multiple organizations and thus using the
+`SOCIAL_AUTH_SUBDOMAIN` setting, you'll need to configure a custom
+`RelayState` in your IdP of the form `{"subdomain":
+"yourzuliporganization"}` to let Zulip know which organization to
+authenticate the user to when they visit your SSO URL from the IdP.
+(If the organization is on the root domain, use the empty string:
+`{"subdomain": ""}`.).
+
 ```eval_rst
 .. _ldap:
 ```
+
+### Restricting access to specific organizations
+
+If you're hosting multiple Zulip organizations, you can restrict which
+organizations can use a given IdP by setting `limit_to_subdomains`.
+For example, `limit_to_subdomains = ["", "engineering"]` would
+restrict an IdP the root domain and the `engineering` subdomain.
+
+You can achieve the same goal with a SAML attribute; just declare
+which attribute using `attr_org_membership` in the IdP configuration.
+For the root subdomain, `www` in the list will work, or any other of
+`settings.ROOT_SUBDOMAIN_ALIASES`.
+
+For example, with `attr_org_membership` set to `member`, a user with
+the following attribute in their `AttributeStatement` will have access
+to the root and `engineering` subdomains:
+
+```
+<saml2:Attribute Name="member" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:unspecified">
+  <saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">
+    www
+  </saml2:AttributeValue>
+  <saml2:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">
+    engineering
+  </saml2:AttributeValue>
+</saml2:Attribute>
+```
+
 ## LDAP (including Active Directory)
 
 Zulip supports retrieving information about users via LDAP, and
@@ -245,7 +297,7 @@ Zulip by entering your email address and LDAP password on the Zulip
 login form.
 
 You may also want to configure Zulip's settings for [inviting new
-users](https://zulipchat.com/help/invite-new-users).  If LDAP is the
+users](https://zulip.com/help/invite-new-users).  If LDAP is the
 only enabled authentication method, the main use case for Zulip's
 invitation feature is selecting the initial streams for invited users
 (invited users will still need to use their LDAP password to create an
@@ -283,7 +335,7 @@ When using this feature, you may also want to
 since any such changes would be automatically overwritten on the sync
 run of `manage.py sync_ldap_user_data`.
 
-[restrict-name-changes]: https://zulipchat.com/help/restrict-name-and-email-changes
+[restrict-name-changes]: https://zulip.com/help/restrict-name-and-email-changes
 
 #### Synchronizing avatars
 
@@ -305,7 +357,7 @@ corresponding LDAP attribute is `linkedinProfile` then you just need
 to add `'custom_profile_field__linkedin_profile': 'linkedinProfile'`
 to the `AUTH_LDAP_USER_ATTR_MAP`.
 
-[custom-profile-fields]: https://zulipchat.com/help/add-custom-profile-fields
+[custom-profile-fields]: https://zulip.com/help/add-custom-profile-fields
 
 #### Automatically deactivating users with Active Directory
 
@@ -356,7 +408,7 @@ Other fields you may want to sync from LDAP include:
 * String fields like `default_language` (e.g. `en`) or `timezone`, if
   you have that data in the right format in your LDAP database.
 * [Coming soon][custom-profile-fields-ldap]: Support for syncing
-  [custom profile fields](https://zulipchat.com/help/add-custom-profile-fields)
+  [custom profile fields](https://zulip.com/help/add-custom-profile-fields)
   from your LDAP database.
 
 You can look at the [full list of fields][models-py] in the Zulip user
@@ -522,6 +574,55 @@ to debug.
   This request is sent by nginx to the main Zulip Django app, which
   sees the cookie, treats them as logged in, and proceeds to serve
   them the main app page normally.
+
+## Sign in with Apple
+
+Zulip supports using the web flow for Sign in with Apple on
+self-hosted servers.  To do so, you'll need to do the following:
+
+1. Visit [the Apple Developer site][apple-developer] and [Create a
+Services ID.][apple-create-services-id]. When prompted for a "Return
+URL", enter `https://zulip.example.com/complete/apple/` (using the
+domain for your server).
+
+1. Create a [Sign in with Apple private key][apple-create-private-key].
+
+1. Store the resulting private key at
+   `/etc/zulip/apple/zulip-private-key.key`.  Be sure to set
+   permissions correctly:
+
+   ```
+   chown -R zulip:zulip /etc/zulip/apple/
+   chmod 640 /etc/zulip/apple/zulip-private-key.key
+   ```
+
+1. Configure Apple authentication in `/etc/zulip/settings.py`:
+   * `SOCIAL_AUTH_APPLE_TEAM`: Your Team ID from Apple, which is a
+     string like "A1B2C3D4E5".
+   * `SOCIAL_AUTH_APPLE_SERVICES_ID`: The Services ID you created in
+     step 1, which might look like "com.example.services".
+   * `SOCIAL_AUTH_APPLE_BUNDLE_ID`: The Bundle ID, or App ID, of your
+     app that you used in step 1 to configure your Services ID.
+     This might look like "com.example.app".
+   * `SOCIAL_AUTH_APPLE_KEY`: Despite the name this is not a key, but
+     rather the Key ID of the key you created in step 2.  This looks
+     like "F6G7H8I9J0".
+   * `AUTHENTICATION_BACKENDS`: Uncomment (or add) a line like
+     `'zproject.backends.AppleAuthBackend',` to enable Apple auth
+     using the created configuration.
+
+1. Register with Apple the email addresses or domains your Zulip
+   server sends email to users from.  For instructions and background,
+   see the "Email Relay Service" subsection of
+   [this page][apple-get-started].  For details on what email
+   addresses Zulip sends from, see our
+   [outgoing email documentation][outgoing-email].
+
+[apple-create-services-id]: https://help.apple.com/developer-account/?lang=en#/dev1c0e25352
+[apple-developer]: https://developer.apple.com/account/resources/
+[apple-create-private-key]: https://help.apple.com/developer-account/?lang=en#/dev77c875b7e
+[apple-get-started]: https://developer.apple.com/sign-in-with-apple/get-started/
+[outgoing-email]: ../production/email.md
 
 ## Adding more authentication backends
 

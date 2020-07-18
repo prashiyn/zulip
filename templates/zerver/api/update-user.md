@@ -1,15 +1,6 @@
-# Update User
+# Update a user
 
-{!api-admin-only.md!}
-
-Administrative endpoint to update the details of another user in the organization.
-
-`PATCH {{ api_url }}/v1/users/{user_id}`
-
-Supports everything an administrator can do to edit details of another
-user's account, including editing full name,
-[role](/help/roles-and-permissions), and [custom profile
-fields](/help/add-custom-profile-fields).
+{generate_api_description(/users/{user_id}:patch)}
 
 ## Usage examples
 
@@ -24,7 +15,7 @@ fields](/help/add-custom-profile-fields).
 
 {end_tabs}
 
-## Arguments
+## Parameters
 
 {generate_api_arguments_table|zulip.yaml|/users/{user_id}:patch}
 

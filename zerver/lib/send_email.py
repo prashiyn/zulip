@@ -1,30 +1,27 @@
+import datetime
+import hashlib
+import logging
+import os
+from email.headerregistry import Address
+from email.parser import Parser
+from email.policy import default
+from email.utils import formataddr, parseaddr
+from typing import Any, Dict, List, Mapping, Optional, Tuple
+
+import ujson
 from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.core.management import CommandError
 from django.template import loader
+from django.template.exceptions import TemplateDoesNotExist
 from django.utils.timezone import now as timezone_now
 from django.utils.translation import override as override_language
 from django.utils.translation import ugettext as _
-from django.template.exceptions import TemplateDoesNotExist
-from scripts.setup.inline_email_css import inline_template
 
-from zerver.models import ScheduledEmail, get_user_profile_by_id, \
-    EMAIL_TYPES, Realm, UserProfile
-
-import datetime
-from email.utils import parseaddr, formataddr
-from email.parser import Parser
-from email.policy import default
-
-import logging
-import ujson
-import hashlib
-
-import os
-from typing import Any, Dict, List, Mapping, Optional, Tuple
-
-from zerver.lib.logging_util import log_to_file
 from confirmation.models import generate_key
+from scripts.setup.inline_email_css import inline_template
+from zerver.lib.logging_util import log_to_file
+from zerver.models import EMAIL_TYPES, Realm, ScheduledEmail, UserProfile, get_user_profile_by_id
 
 ## Logging setup ##
 
@@ -59,22 +56,31 @@ class FromAddress:
 def build_email(template_prefix: str, to_user_ids: Optional[List[int]]=None,
                 to_emails: Optional[List[str]]=None, from_name: Optional[str]=None,
                 from_address: Optional[str]=None, reply_to_email: Optional[str]=None,
-                language: Optional[str]=None, context: Optional[Dict[str, Any]]=None
+                language: Optional[str]=None, context: Mapping[str, Any]={},
+                realm: Optional[Realm]=None
                 ) -> EmailMultiAlternatives:
     # Callers should pass exactly one of to_user_id and to_email.
     assert (to_user_ids is None) ^ (to_emails is None)
     if to_user_ids is not None:
         to_users = [get_user_profile_by_id(to_user_id) for to_user_id in to_user_ids]
-        to_emails = [formataddr((to_user.full_name, to_user.delivery_email)) for to_user in to_users]
+        if realm is None:
+            assert len(set([to_user.realm_id for to_user in to_users])) == 1
+            realm = to_users[0].realm
+        to_emails = [str(Address(display_name=to_user.full_name, addr_spec=to_user.delivery_email)) for to_user in to_users]
 
-    if context is None:
-        context = {}
+    extra_headers = {}
+    if realm is not None:
+        # formaddr is meant for formatting (display_name, email_address) pair for headers like "To",
+        # but we can use its utility for formatting the List-Id header, as it follows the same format,
+        # except having just a domain instead of an email address.
+        extra_headers['List-Id'] = formataddr((realm.name, realm.host))
 
-    context.update({
+    context = {
+        **context,
         'support_email': FromAddress.SUPPORT,
         'email_images_base_uri': settings.ROOT_DOMAIN_URI + '/static/images/emails',
         'physical_address': settings.PHYSICAL_ADDRESS,
-    })
+    }
 
     def render_templates() -> Tuple[str, str, str]:
         email_subject = loader.render_to_string(template_prefix + '.subject.txt',
@@ -100,7 +106,7 @@ def build_email(template_prefix: str, to_user_ids: Optional[List[int]]=None,
             (html_message, message, email_subject) = render_templates()
     else:
         (html_message, message, email_subject) = render_templates()
-        logger.warning("Missing language for email template '{}'".format(template_prefix))
+        logger.warning("Missing language for email template '%s'", template_prefix)
 
     if from_name is None:
         from_name = "Zulip"
@@ -113,7 +119,7 @@ def build_email(template_prefix: str, to_user_ids: Optional[List[int]]=None,
     if from_address == FromAddress.support_placeholder:
         from_address = FromAddress.SUPPORT
 
-    from_email = formataddr((from_name, from_address))
+    from_email = str(Address(display_name=from_name, addr_spec=from_address))
     reply_to = None
     if reply_to_email is not None:
         reply_to = [reply_to_email]
@@ -123,7 +129,8 @@ def build_email(template_prefix: str, to_user_ids: Optional[List[int]]=None,
     elif from_address == FromAddress.NOREPLY:
         reply_to = [FromAddress.NOREPLY]
 
-    mail = EmailMultiAlternatives(email_subject, message, from_email, to_emails, reply_to=reply_to)
+    mail = EmailMultiAlternatives(email_subject, message, from_email, to_emails, reply_to=reply_to,
+                                  headers=extra_headers)
     if html_message is not None:
         mail.attach_alternative(html_message, 'text/html')
     return mail
@@ -133,14 +140,12 @@ class EmailNotDeliveredException(Exception):
 
 class DoubledEmailArgumentException(CommandError):
     def __init__(self, argument_name: str) -> None:
-        msg = "Argument '%s' is ambiguously present in both options and email template." % (
-            argument_name)
+        msg = f"Argument '{argument_name}' is ambiguously present in both options and email template."
         super().__init__(msg)
 
 class NoEmailArgumentException(CommandError):
     def __init__(self, argument_name: str) -> None:
-        msg = "Argument '%s' is required in either options or email template." % (
-            argument_name)
+        msg = f"Argument '{argument_name}' is required in either options or email template."
         super().__init__(msg)
 
 # When changing the arguments to this function, you may need to write a
@@ -148,15 +153,17 @@ class NoEmailArgumentException(CommandError):
 def send_email(template_prefix: str, to_user_ids: Optional[List[int]]=None,
                to_emails: Optional[List[str]]=None, from_name: Optional[str]=None,
                from_address: Optional[str]=None, reply_to_email: Optional[str]=None,
-               language: Optional[str]=None, context: Dict[str, Any]={}) -> None:
+               language: Optional[str]=None, context: Dict[str, Any]={},
+               realm: Optional[Realm]=None) -> None:
     mail = build_email(template_prefix, to_user_ids=to_user_ids, to_emails=to_emails,
                        from_name=from_name, from_address=from_address,
-                       reply_to_email=reply_to_email, language=language, context=context)
+                       reply_to_email=reply_to_email, language=language, context=context,
+                       realm=realm)
     template = template_prefix.split("/")[-1]
-    logger.info("Sending %s email to %s" % (template, mail.to))
+    logger.info("Sending %s email to %s", template, mail.to)
 
     if mail.send() == 0:
-        logger.error("Error sending %s email to %s" % (template, mail.to))
+        logger.error("Error sending %s email to %s", template, mail.to)
         raise EmailNotDeliveredException
 
 def send_email_from_dict(email_dict: Mapping[str, Any]) -> None:
@@ -265,12 +272,12 @@ def send_custom_email(users: List[UserProfile], options: Dict[str, Any]) -> None
         parsed_email_template = Parser(policy=default).parsestr(text)
         email_template_hash = hashlib.sha256(text.encode('utf-8')).hexdigest()[0:32]
 
-    email_filename = "custom/custom_email_%s.source.html" % (email_template_hash,)
-    email_id = "zerver/emails/custom/custom_email_%s" % (email_template_hash,)
+    email_filename = f"custom/custom_email_{email_template_hash}.source.html"
+    email_id = f"zerver/emails/custom/custom_email_{email_template_hash}"
     markdown_email_base_template_path = "templates/zerver/emails/custom_email_base.pre.html"
-    html_source_template_path = "templates/%s.source.html" % (email_id,)
-    plain_text_template_path = "templates/%s.txt" % (email_id,)
-    subject_path = "templates/%s.subject.txt" % (email_id,)
+    html_source_template_path = f"templates/{email_id}.source.html"
+    plain_text_template_path = f"templates/{email_id}.txt"
+    subject_path = f"templates/{email_id}.subject.txt"
     os.makedirs(os.path.dirname(html_source_template_path), exist_ok=True)
 
     # First, we render the markdown input file just like our
@@ -297,8 +304,9 @@ def send_custom_email(users: List[UserProfile], options: Dict[str, Any]) -> None
     inline_template(email_filename)
 
     # Finally, we send the actual emails.
-    for user_profile in filter(lambda user:
-                               not options.get('admins_only') or user.is_realm_admin, users):
+    for user_profile in users:
+        if options.get('admins_only') and not user_profile.is_realm_admin:
+            continue
         context = {
             'realm_uri': user_profile.realm.uri,
             'realm_name': user_profile.realm.name,

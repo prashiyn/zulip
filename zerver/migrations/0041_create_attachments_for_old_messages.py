@@ -2,7 +2,7 @@ import os
 import re
 
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 attachment_url_re = re.compile(r'[/\-]user[\-_]uploads[/\.-].*?(?=[ )]|\Z)')
@@ -50,5 +50,5 @@ class Migration(migrations.Migration):
             name='file_name',
             field=models.TextField(db_index=True),
         ),
-        migrations.RunPython(check_and_create_attachments)
+        migrations.RunPython(check_and_create_attachments, elidable=True),
     ]

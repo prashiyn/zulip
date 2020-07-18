@@ -1,38 +1,28 @@
-from functools import partial
+import os
 import random
-import sys
-
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, \
-    Type, TypeVar, Union
-from unittest import loader, runner
+import shutil
+from functools import partial
+from multiprocessing.sharedctypes import Synchronized
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
+from unittest import TestLoader, TestSuite, runner
 from unittest.result import TestResult
 
 from django.conf import settings
-from django.db import connections, ProgrammingError
-from django.urls.resolvers import URLPattern
+from django.db import ProgrammingError, connections
 from django.test import TestCase
 from django.test import runner as django_runner
 from django.test.runner import DiscoverRunner
 from django.test.signals import template_rendered
+from django.urls.resolvers import URLPattern
 
-from zerver.lib import test_helpers
-from zerver.lib.cache import bounce_key_prefix_for_testing
-from zerver.lib.rate_limiter import bounce_redis_key_prefix_for_testing
-from zerver.lib.sqlalchemy_utils import get_sqlalchemy_connection
-from zerver.lib.test_helpers import (
-    write_instrumentation_reports,
-    append_instrumentation_data
+from scripts.lib.zulip_tools import (
+    TEMPLATE_DATABASE_DIR,
+    get_dev_uuid_var_path,
+    get_or_create_dev_uuid_var_path,
 )
-
-import os
-import time
-import unittest
-import shutil
-
-from multiprocessing.sharedctypes import Synchronized
-
-from scripts.lib.zulip_tools import get_dev_uuid_var_path, TEMPLATE_DATABASE_DIR, \
-    get_or_create_dev_uuid_var_path
+from zerver.lib import test_helpers
+from zerver.lib.sqlalchemy_utils import get_sqlalchemy_connection
+from zerver.lib.test_helpers import append_instrumentation_data, write_instrumentation_reports
 
 # We need to pick an ID for this test-backend invocation, and store it
 # in this global so it can be used in init_worker; this is used to
@@ -43,108 +33,14 @@ random_id_range_start = str(random.randint(1, 10000000))
 
 def get_database_id(worker_id: Optional[int]=None) -> str:
     if worker_id:
-        return "{}_{}".format(random_id_range_start, worker_id)
+        return f"{random_id_range_start}_{worker_id}"
     return random_id_range_start
 
 # The root directory for this run of the test suite.
 TEST_RUN_DIR = get_or_create_dev_uuid_var_path(
-    os.path.join('test-backend', 'run_{}'.format(get_database_id())))
+    os.path.join('test-backend', f'run_{get_database_id()}'))
 
 _worker_id = 0  # Used to identify the worker process.
-
-ReturnT = TypeVar('ReturnT')  # Constrain return type to match
-
-def slow(slowness_reason: str) -> Callable[[Callable[..., ReturnT]], Callable[..., ReturnT]]:
-    '''
-    This is a decorate that annotates a test as being "known
-    to be slow."  The decorator will set expected_run_time and slowness_reason
-    as attributes of the function.  Other code can use this annotation
-    as needed, e.g. to exclude these tests in "fast" mode.
-    '''
-    def decorator(f: Callable[..., ReturnT]) -> Callable[..., ReturnT]:
-        setattr(f, 'slowness_reason', slowness_reason)
-        return f
-
-    return decorator
-
-def is_known_slow_test(test_method: Callable[..., ReturnT]) -> bool:
-    return hasattr(test_method, 'slowness_reason')
-
-def full_test_name(test: TestCase) -> str:
-    test_module = test.__module__
-    test_class = test.__class__.__name__
-    test_method = test._testMethodName
-    return '%s.%s.%s' % (test_module, test_class, test_method)
-
-def get_test_method(test: TestCase) -> Callable[[], None]:
-    return getattr(test, test._testMethodName)
-
-# Each tuple is delay, test_name, slowness_reason
-TEST_TIMINGS: List[Tuple[float, str, str]] = []
-
-
-def report_slow_tests() -> None:
-    timings = sorted(TEST_TIMINGS, reverse=True)
-    print('SLOWNESS REPORT')
-    print(' delay test')
-    print(' ----  ----')
-    for delay, test_name, slowness_reason in timings[:15]:
-        if not slowness_reason:
-            slowness_reason = 'UNKNOWN WHY SLOW, please investigate'
-        print(' %0.3f %s\n       %s\n' % (delay, test_name, slowness_reason))
-
-    print('...')
-    for delay, test_name, slowness_reason in timings[100:]:
-        if slowness_reason:
-            print(' %.3f %s is not that slow' % (delay, test_name))
-            print('      consider removing @slow decorator')
-            print('      This may no longer be true: %s' % (slowness_reason,))
-
-def enforce_timely_test_completion(test_method: Callable[..., ReturnT], test_name: str,
-                                   delay: float, result: unittest.TestResult) -> None:
-    if hasattr(test_method, 'slowness_reason'):
-        max_delay = 2.0  # seconds
-    else:
-        max_delay = 0.4  # seconds
-
-    assert isinstance(result, TextTestResult) or isinstance(result, RemoteTestResult)
-
-    if delay > max_delay:
-        msg = '** Test is TOO slow: %s (%.3f s)\n' % (test_name, delay)
-        result.addInfo(test_method, msg)
-
-def fast_tests_only() -> bool:
-    return "FAST_TESTS_ONLY" in os.environ
-
-def run_test(test: TestCase, result: TestResult) -> bool:
-    failed = False
-    test_method = get_test_method(test)
-
-    if fast_tests_only() and is_known_slow_test(test_method):
-        return failed
-
-    test_name = full_test_name(test)
-
-    bounce_key_prefix_for_testing(test_name)
-    bounce_redis_key_prefix_for_testing(test_name)
-
-    try:
-        test._pre_setup()
-    except Exception:
-        result.addError(test, sys.exc_info())
-        return True
-
-    start_time = time.time()
-
-    test(result)  # unittest will handle skipping, error, failure and success.
-
-    delay = time.time() - start_time
-    enforce_timely_test_completion(test_method, test_name, delay, result)
-    slowness_reason = getattr(test_method, 'slowness_reason', '')
-    TEST_TIMINGS.append((delay, test_name, slowness_reason))
-
-    test._post_teardown()
-    return failed
 
 class TextTestResult(runner.TextTestResult):
     """
@@ -157,36 +53,36 @@ class TextTestResult(runner.TextTestResult):
         self.failed_tests: List[str] = []
 
     def addInfo(self, test: TestCase, msg: str) -> None:
-        self.stream.write(msg)  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
-        self.stream.flush()  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
+        self.stream.write(msg)
+        self.stream.flush()
 
     def addInstrumentation(self, test: TestCase, data: Dict[str, Any]) -> None:
         append_instrumentation_data(data)
 
     def startTest(self, test: TestCase) -> None:
         TestResult.startTest(self, test)
-        self.stream.writeln("Running {}".format(full_test_name(test)))  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
-        self.stream.flush()  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
+        self.stream.writeln(f"Running {test.id()}")  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
+        self.stream.flush()
 
     def addSuccess(self, *args: Any, **kwargs: Any) -> None:
         TestResult.addSuccess(self, *args, **kwargs)
 
     def addError(self, *args: Any, **kwargs: Any) -> None:
         TestResult.addError(self, *args, **kwargs)
-        test_name = full_test_name(args[0])
+        test_name = args[0].id()
         self.failed_tests.append(test_name)
 
     def addFailure(self, *args: Any, **kwargs: Any) -> None:
         TestResult.addFailure(self, *args, **kwargs)
-        test_name = full_test_name(args[0])
+        test_name = args[0].id()
         self.failed_tests.append(test_name)
 
     def addSkip(self, test: TestCase, reason: str) -> None:
         TestResult.addSkip(self, test, reason)
         self.stream.writeln("** Skipping {}: {}".format(  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
-            full_test_name(test),
+            test.id(),
             reason))
-        self.stream.flush()  # type: ignore[attr-defined] # https://github.com/python/typeshed/issues/3139
+        self.stream.flush()
 
 class RemoteTestResult(django_runner.RemoteTestResult):
     """
@@ -208,7 +104,7 @@ def process_instrumented_calls(func: Callable[[Dict[str, Any]], None]) -> None:
     for call in test_helpers.INSTRUMENTED_CALLS:
         func(call)
 
-SerializedSubsuite = Tuple[Type['TestSuite'], List[str]]
+SerializedSubsuite = Tuple[Type[TestSuite], List[str]]
 SubsuiteArgs = Tuple[Type['RemoteTestRunner'], int, SerializedSubsuite, bool]
 
 def run_subsuite(args: SubsuiteArgs) -> Tuple[int, Any]:
@@ -226,18 +122,6 @@ def run_subsuite(args: SubsuiteArgs) -> Tuple[int, Any]:
     # addInstrumentation does not need it.
     process_instrumented_calls(partial(result.addInstrumentation, None))
     return subsuite_index, result.events
-
-# Monkey-patch database creation to fix unnecessary sleep(1)
-from django.db.backends.postgresql.creation import DatabaseCreation
-def _replacement_destroy_test_db(self: DatabaseCreation,
-                                 test_database_name: str,
-                                 verbosity: int) -> None:
-    """Replacement for Django's _destroy_test_db that removes the
-    unnecessary sleep(1)."""
-    with self.connection._nodb_connection.cursor() as cursor:
-        cursor.execute("DROP DATABASE %s"
-                       % (self.connection.ops.quote_name(test_database_name),))
-DatabaseCreation._destroy_test_db = _replacement_destroy_test_db
 
 def destroy_test_databases(worker_id: Optional[int]=None) -> None:
     for alias in connections:
@@ -329,47 +213,6 @@ def init_worker(counter: Synchronized) -> None:
     if not found:
         print("*** Upload directory not found.")
 
-class TestSuite(unittest.TestSuite):
-    def run(self, result: TestResult, debug: Optional[bool]=False) -> TestResult:
-        """
-        This function mostly contains the code from
-        unittest.TestSuite.run. The need to override this function
-        occurred because we use run_test to run the testcase.
-        """
-        topLevel = False
-        if getattr(result, '_testRunEntered', False) is False:
-            result._testRunEntered = topLevel = True  # type: ignore[attr-defined]
-
-        for test in self:
-            # but this is correct. Taken from unittest.
-            if result.shouldStop:
-                break
-
-            if isinstance(test, TestSuite):
-                test.run(result, debug=debug)
-            else:
-                self._tearDownPreviousClass(test, result)  # type: ignore[attr-defined]
-                self._handleModuleFixture(test, result)  # type: ignore[attr-defined]
-                self._handleClassSetUp(test, result)  # type: ignore[attr-defined]
-                result._previousTestClass = test.__class__  # type: ignore[attr-defined]
-                if (getattr(test.__class__, '_classSetupFailed', False) or
-                        getattr(result, '_moduleSetUpFailed', False)):
-                    continue
-
-                failed = run_test(test, result)
-                if failed or result.shouldStop:
-                    result.shouldStop = True
-                    break
-
-        if topLevel:
-            self._tearDownPreviousClass(None, result)  # type: ignore[attr-defined]
-            self._handleModuleTearDown(result)  # type: ignore[attr-defined]
-            result._testRunEntered = False  # type: ignore[attr-defined]
-        return result
-
-class TestLoader(loader.TestLoader):
-    suiteClass = TestSuite
-
 class ParallelTestSuite(django_runner.ParallelTestSuite):
     run_subsuite = run_subsuite
     init_worker = init_worker
@@ -380,7 +223,8 @@ class ParallelTestSuite(django_runner.ParallelTestSuite):
         # the whole idea here is to monkey-patch that so we can use
         # most of django_runner.ParallelTestSuite with our own suite
         # definitions.
-        self.subsuites = SubSuiteList(self.subsuites)  # type: ignore[has-type] # Type of self.subsuites changes.
+        assert not isinstance(self.subsuites, SubSuiteList)
+        self.subsuites: Union[SubSuiteList, List[TestSuite]] = SubSuiteList(self.subsuites)
 
 def check_import_error(test_name: str) -> None:
     try:
@@ -394,7 +238,7 @@ def check_import_error(test_name: str) -> None:
 def initialize_worker_path(worker_id: int) -> None:
     # Allow each test worker process to write to a unique directory
     # within `TEST_RUN_DIR`.
-    worker_path = os.path.join(TEST_RUN_DIR, 'worker_{}'.format(_worker_id))
+    worker_path = os.path.join(TEST_RUN_DIR, f'worker_{_worker_id}')
     os.makedirs(worker_path, exist_ok=True)
     settings.TEST_WORKER_DIR = worker_path
 
@@ -405,10 +249,9 @@ def initialize_worker_path(worker_id: int) -> None:
                      os.path.basename(TEST_RUN_DIR),
                      os.path.basename(worker_path),
                      "test_uploads"))
+    settings.SENDFILE_ROOT = os.path.join(settings.LOCAL_UPLOADS_DIR, "files")
 
 class Runner(DiscoverRunner):
-    test_suite = TestSuite
-    test_loader = TestLoader()
     parallel_test_suite = ParallelTestSuite
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -489,7 +332,6 @@ class Runner(DiscoverRunner):
             shutil.rmtree(TEST_RUN_DIR)
         except OSError:
             print("Unable to clean up the test run's directory.")
-            pass
         return super().teardown_test_environment(*args, **kwargs)
 
     def test_imports(self, test_labels: List[str], suite: Union[TestSuite, ParallelTestSuite]) -> None:
@@ -570,11 +412,12 @@ def get_test_names(suite: Union[TestSuite, ParallelTestSuite]) -> List[str]:
         # first element is the type of TestSuite and the second element is a
         # list of test names in that test suite. See serialize_suite() for the
         # implementation details.
+        assert isinstance(suite.subsuites, SubSuiteList)
         return [name for subsuite in suite.subsuites for name in subsuite[1]]
     else:
-        return [full_test_name(t) for t in get_tests_from_suite(suite)]
+        return [t.id() for t in get_tests_from_suite(suite)]
 
-def get_tests_from_suite(suite: unittest.TestSuite) -> TestCase:
+def get_tests_from_suite(suite: TestSuite) -> TestCase:
     for test in suite:
         if isinstance(test, TestSuite):
             yield from get_tests_from_suite(test)

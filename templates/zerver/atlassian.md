@@ -4,10 +4,11 @@ migrating from Atlassian’s HipChat or Stride to Zulip.
 
 ## Do a trial of Zulip.
 
-* [Install Zulip on-premise](https://zulip.readthedocs.io/en/stable/production/install.html)
-or [create a Zulip Cloud organization](https://zulipchat.com/new) on
-zulipchat.com. Installing a Zulip server takes just a couple of
-minutes.
+* [Install Zulip
+on-premise](https://zulip.readthedocs.io/en/stable/production/install.html)
+or [create a Zulip Cloud
+organization](https://zulip.com/new). Installing a Zulip server takes
+just a couple of minutes.
 
 * Stop by the [Zulip community server](https://chat.zulip.org) to see
 what an active Zulip organization looks like.  The Zulip community
@@ -47,8 +48,9 @@ Instructions for integrating with [JIRA](/integrations/doc/jira),
 [OpsGenie](/integrations/doc/opsgenie) are linked.
 
 We recommend integrating via [Zapier](/integrations/doc/zapier) for
-Confluence, Bamboo, Fisheye, Crucible, Crowd, and Sourcetree. Email
-<support@zulipchat.com> if you get stuck and we’d be happy to help you out.
+Confluence, Bamboo, Fisheye, Crucible, Crowd, and Sourcetree.
+[Contact us](/help/contact-support) if you get stuck and we’d be happy to help
+you out.
 
 ## Read our guides.
 
@@ -64,7 +66,7 @@ chat model.
 
 ## Decide on a payment plan.
 
-See [zulipchat.com/plans](https://zulipchat.com/plans) for Cloud
-pricing, or email <support@zulipchat.com> for on-premise support
+See [zulip.com/plans](https://zulip.com/plans) for Cloud
+pricing, or email <support@zulip.com> for on-premise support
 options. We also offer affordable paid installation help that includes
 installing and configuring Zulip.

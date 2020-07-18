@@ -37,8 +37,8 @@ export function clean_path(full_path: string): string {
 }
 
 export function clean_function_name(
-    function_name: string | undefined
-): { scope: string; name: string } | undefined {
+    function_name: string | undefined,
+): {scope: string; name: string} | undefined {
     if (function_name === undefined) {
         return undefined;
     }
@@ -49,9 +49,9 @@ export function clean_function_name(
     };
 }
 
-const sourceCache: { [source: string]: string | Promise<string> } = {};
+const sourceCache: {[source: string]: string | Promise<string>} = {};
 
-const stack_trace_gps = new StackTraceGPS({ sourceCache });
+const stack_trace_gps = new StackTraceGPS({sourceCache});
 
 async function get_context(location: StackFrame): Promise<NumberedLine[] | undefined> {
     const sourceContent = await sourceCache[location.getFileName()];
@@ -78,7 +78,7 @@ export async function display_stacktrace(error: string, stack: string): Promise<
             const location = await stack_trace_gps.getMappedLocation(
                 // Work around mistake in ErrorStackParser.StackFrame definition
                 // https://github.com/stacktracejs/error-stack-parser/pull/49
-                (stack_frame as unknown) as StackFrame
+                (stack_frame as unknown) as StackFrame,
             );
             return {
                 full_path: location.getFileName(),
@@ -87,11 +87,11 @@ export async function display_stacktrace(error: string, stack: string): Promise<
                 function_name: clean_function_name(location.getFunctionName()),
                 context: await get_context(location),
             };
-        })
+        }),
     );
 
     const $alert = $("<div class='stacktrace'>").html(
-        render_blueslip_stacktrace({ error, stackframes })
+        render_blueslip_stacktrace({error, stackframes}),
     );
     $(".alert-box").append($alert);
     $alert.addClass("show");

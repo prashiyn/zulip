@@ -20,8 +20,7 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: str) -> None:
         def purge_queue(queue_name: str) -> None:
             queue = SimpleQueueClient()
-            queue.ensure_queue(queue_name, lambda: None)
-            queue.channel.queue_purge(queue_name)
+            queue.ensure_queue(queue_name, lambda channel: channel.queue_purge(queue_name))
 
         if options['all']:
             for queue_name in get_active_worker_queues():
@@ -33,9 +32,9 @@ class Command(BaseCommand):
             queue_name = options['queue_name']
             if not (queue_name in get_active_worker_queues() or
                     queue_name.startswith("notify_tornado")):
-                raise CommandError("Unknown queue %s" % (queue_name,))
+                raise CommandError(f"Unknown queue {queue_name}")
 
-            print("Purging queue %s" % (queue_name,))
+            print(f"Purging queue {queue_name}")
             purge_queue(queue_name)
 
         print("Done")

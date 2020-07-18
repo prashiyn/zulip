@@ -1,7 +1,8 @@
 exports.get_search_terms = function (input) {
-    const search_terms = input.toLowerCase().split(",").map(function (s) {
-        return s.trim();
-    });
+    const search_terms = input
+        .toLowerCase()
+        .split(",")
+        .map((s) => s.trim());
     return search_terms;
 };
 
@@ -17,7 +18,7 @@ exports.vanilla_match = function (opts) {
         This is case insensitive.
     */
     const val = opts.val.toLowerCase();
-    return opts.search_terms.some(term => val.includes(term));
+    return opts.search_terms.some((term) => val.includes(term));
 };
 
 window.search_util = exports;

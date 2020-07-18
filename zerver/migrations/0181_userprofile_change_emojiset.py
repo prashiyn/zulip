@@ -1,5 +1,5 @@
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -16,7 +16,8 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunPython(
             change_emojiset_choice,
-            reverse_code=migrations.RunPython.noop),
+            reverse_code=migrations.RunPython.noop,
+            elidable=True),
         migrations.AlterField(
             model_name='userprofile',
             name='emojiset',

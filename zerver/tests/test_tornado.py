@@ -1,22 +1,20 @@
+import urllib.parse
+from typing import Any, Dict, Optional
+
 import ujson
 from django.conf import settings
-from django.db import close_old_connections
 from django.core import signals
+from django.db import close_old_connections
 from django.test import override_settings
 from tornado.httpclient import HTTPResponse
-
-from zerver.lib.test_classes import ZulipTestCase
-
 from tornado.testing import AsyncHTTPTestCase
 from tornado.web import Application
 
-from zerver.tornado.application import create_tornado_application
+from zerver.lib.test_classes import ZulipTestCase
 from zerver.tornado import event_queue
+from zerver.tornado.application import create_tornado_application
 from zerver.tornado.event_queue import process_event
 
-import urllib.parse
-
-from typing import Any, Dict, Optional, List, cast
 
 class TornadoWebTestCase(AsyncHTTPTestCase, ZulipTestCase):
     def setUp(self) -> None:
@@ -53,7 +51,7 @@ class TornadoWebTestCase(AsyncHTTPTestCase, ZulipTestCase):
             self.get_url(path),
             self.stop,
             method=method,
-            **kwargs
+            **kwargs,
         )
 
     def client_get_async(self, path: str, **kwargs: Any) -> None:
@@ -66,7 +64,7 @@ class TornadoWebTestCase(AsyncHTTPTestCase, ZulipTestCase):
         session_cookie = settings.SESSION_COOKIE_NAME
         session_key = self.client.session.session_key
         self.session_cookie = {
-            "Cookie": "{}={}".format(session_cookie, session_key)
+            "Cookie": f"{session_cookie}={session_key}",
         }
 
     def get_session_cookie(self) -> Dict[str, str]:
@@ -102,7 +100,7 @@ class EventsTestCase(TornadoWebTestCase):
             'last_event_id': -1,
         }
 
-        path = '/json/events?{}'.format(urllib.parse.urlencode(data))
+        path = f'/json/events?{urllib.parse.urlencode(data)}'
         self.client_get_async(path)
 
         def process_events() -> None:
@@ -116,8 +114,7 @@ class EventsTestCase(TornadoWebTestCase):
         self.io_loop.call_later(0.1, process_events)
         response = self.wait()
         data = ujson.loads(response.body)
-        events = data['events']
-        events = cast(List[Dict[str, Any]], events)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]['data'], 'test data')
+        self.assertEqual(data['events'], [
+            {'type': 'test', 'data': 'test data', 'id': 0},
+        ])
         self.assertEqual(data['result'], 'success')

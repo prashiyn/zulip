@@ -6,7 +6,7 @@ guide to [sending outgoing email](../production/email.md). If you're trying to
 configure an email integration to receive incoming email (e.g. so that users
 can reply to missed message emails via email), you might be interested in
 our instructions for
-[setting up an email integration](https://zulipchat.com/integrations/doc/email).
+[setting up an email integration](https://zulip.com/integrations/doc/email).
 
 On to the documentation. Zulip's email system is fairly straightforward,
 with only a few things you need to know to get started.
@@ -51,7 +51,7 @@ All the emails sent in the development environment can be accessed by
 visiting `/emails` in the browser.  The way that this works is that
 we've set the email backend (aka what happens when you call the email
 `.send()` method in Django) in the development environment to be our
-our custom backend, `EmailLogBackEnd`.  It does the following:
+custom backend, `EmailLogBackEnd`.  It does the following:
 
 * Logs any sent emails to `var/log/email_content.log`. This log is
   displayed by the `/emails` endpoint

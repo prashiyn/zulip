@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import Any, Dict
 
 from django.db import migrations
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 
@@ -24,8 +24,7 @@ def realm_emoji_name_to_id(apps: StateApps, schema_editor: DatabaseSchemaEditor)
             # Realm emoji used in this reaction has been deleted so this
             # reaction should also be deleted. We don't need to reverse
             # this step in migration reversal code.
-            print("Reaction for (%s, %s) refers to deleted custom emoji %s; deleting" %
-                  (emoji_name, reaction.message_id, reaction.user_profile_id))
+            print(f"Reaction for ({emoji_name}, {reaction.message_id}) refers to deleted custom emoji {reaction.user_profile_id}; deleting")
             reaction.delete()
         else:
             reaction.emoji_code = realm_emoji["id"]
@@ -45,5 +44,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(realm_emoji_name_to_id,
-                             reverse_code=reversal),
+                             reverse_code=reversal,
+                             elidable=True),
     ]

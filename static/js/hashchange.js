@@ -5,20 +5,20 @@ let changing_hash = false;
 function get_full_url(hash) {
     const location = window.location;
 
-    if (hash === '' || hash.charAt(0) !== '#') {
-        hash = '#' + hash;
+    if (hash === "" || hash.charAt(0) !== "#") {
+        hash = "#" + hash;
     }
 
     // IE returns pathname as undefined and missing the leading /
     let pathname = location.pathname;
     if (pathname === undefined) {
-        pathname = '/';
-    } else if (pathname === '' || pathname.charAt(0) !== '/') {
-        pathname = '/' + pathname;
+        pathname = "/";
+    } else if (pathname === "" || pathname.charAt(0) !== "/") {
+        pathname = "/" + pathname;
     }
 
     // Build a full URL to not have same origin problems
-    const url =  location.protocol + '//' + location.host + pathname + hash;
+    const url = location.protocol + "//" + location.host + pathname + hash;
     return url;
 }
 
@@ -27,7 +27,7 @@ function set_hash(hash) {
         const url = get_full_url(hash);
         history.pushState(null, null, url);
     } else {
-        blueslip.warn('browser does not support pushState');
+        blueslip.warn("browser does not support pushState");
         window.location.hash = hash;
     }
 }
@@ -38,7 +38,6 @@ exports.changehash = function (newhash) {
     }
     message_viewport.stop_auto_scrolling();
     set_hash(newhash);
-    favicon.reset();
 };
 
 exports.save_narrow = function (operators) {
@@ -63,7 +62,14 @@ const state = {
 
 function is_overlay_hash(hash) {
     // Hash changes within this list are overlays and should not unnarrow (etc.)
-    const overlay_list = ["streams", "drafts", "settings", "organization", "invite"];
+    const overlay_list = [
+        "streams",
+        "drafts",
+        "settings",
+        "organization",
+        "invite",
+        "recent_topics",
+    ];
     const main_hash = hash_util.get_hash_category(hash);
 
     return overlay_list.includes(main_hash);
@@ -78,52 +84,53 @@ function do_hashchange_normal(from_reload) {
     // be #ABCD.
     const hash = window.location.hash.split("/");
     switch (hash[0]) {
-    case "#narrow": {
-        ui_util.change_tab_to("#home");
-        const operators = hash_util.parse_narrow(hash);
-        if (operators === undefined) {
-            // If the narrow URL didn't parse, clear
-            // window.location.hash and send them to the home tab
-            set_hash('');
-            activate_home_tab();
-            return false;
-        }
-        const narrow_opts = {
-            change_hash: false,  // already set
-            trigger: 'hash change',
-        };
-        if (from_reload) {
-            blueslip.debug('We are narrowing as part of a reload.');
-            if (page_params.initial_narrow_pointer !== undefined) {
-                home_msg_list.pre_narrow_offset = page_params.initial_offset;
-                narrow_opts.then_select_id = page_params.initial_narrow_pointer;
-                narrow_opts.then_select_offset = page_params.initial_narrow_offset;
+        case "#narrow": {
+            ui_util.change_tab_to("#home");
+            const operators = hash_util.parse_narrow(hash);
+            if (operators === undefined) {
+                // If the narrow URL didn't parse, clear
+                // window.location.hash and send them to the home tab
+                set_hash("");
+                activate_home_tab();
+                return false;
             }
+            const narrow_opts = {
+                change_hash: false, // already set
+                trigger: "hash change",
+            };
+            if (from_reload) {
+                blueslip.debug("We are narrowing as part of a reload.");
+                if (page_params.initial_narrow_pointer !== undefined) {
+                    home_msg_list.pre_narrow_offset = page_params.initial_offset;
+                    narrow_opts.then_select_id = page_params.initial_narrow_pointer;
+                    narrow_opts.then_select_offset = page_params.initial_narrow_offset;
+                }
+            }
+            narrow.activate(operators, narrow_opts);
+            floating_recipient_bar.update();
+            return true;
         }
-        narrow.activate(operators, narrow_opts);
-        floating_recipient_bar.update();
-        return true;
-    }
-    case "":
-    case "#":
-        activate_home_tab();
-        break;
-    case "#keyboard-shortcuts":
-        info_overlay.show("keyboard-shortcuts");
-        break;
-    case "#message-formatting":
-        info_overlay.show("message-formatting");
-        break;
-    case "#search-operators":
-        info_overlay.show("search-operators");
-        break;
-    case "#drafts":
-    case "#invite":
-    case "#streams":
-    case "#organization":
-    case "#settings":
-        blueslip.error('overlay logic skipped for: ' + hash);
-        break;
+        case "":
+        case "#":
+            activate_home_tab();
+            break;
+        case "#keyboard-shortcuts":
+            info_overlay.show("keyboard-shortcuts");
+            break;
+        case "#message-formatting":
+            info_overlay.show("message-formatting");
+            break;
+        case "#search-operators":
+            info_overlay.show("search-operators");
+            break;
+        case "#drafts":
+        case "#invite":
+        case "#streams":
+        case "#organization":
+        case "#settings":
+        case "#recent_topics":
+            blueslip.error("overlay logic skipped for: " + hash);
+            break;
     }
     return false;
 }
@@ -131,9 +138,9 @@ function do_hashchange_normal(from_reload) {
 function do_hashchange_overlay(old_hash) {
     const base = hash_util.get_hash_category(window.location.hash);
     const old_base = hash_util.get_hash_category(old_hash);
-    let section = hash_util.get_hash_section(window.location.hash);
+    const section = hash_util.get_hash_section(window.location.hash);
 
-    const coming_from_overlay = is_overlay_hash(old_hash || '#');
+    const coming_from_overlay = is_overlay_hash(old_hash || "#");
 
     // Start by handling the specific case of going
     // from something like streams/all to streams_subscribed.
@@ -142,30 +149,28 @@ function do_hashchange_overlay(old_hash) {
     // the new overlay.
     if (coming_from_overlay) {
         if (base === old_base) {
-            if (base === 'streams') {
+            if (base === "streams") {
                 subs.change_state(section);
                 return;
             }
 
-            if (base === 'settings') {
+            if (base === "settings") {
                 if (!section) {
                     // We may be on a really old browser or somebody
                     // hand-typed a hash.
-                    blueslip.warn('missing section for settings');
-                    section = 'your-account';
+                    blueslip.warn("missing section for settings");
                 }
-                settings_panel_menu.normal_settings.activate_section(section);
+                settings_panel_menu.normal_settings.activate_section_or_default(section);
                 return;
             }
 
-            if (base === 'organization') {
+            if (base === "organization") {
                 if (!section) {
                     // We may be on a really old browser or somebody
                     // hand-typed a hash.
-                    blueslip.warn('missing section for organization');
-                    section = 'organization-profile';
+                    blueslip.warn("missing section for organization");
                 }
-                settings_panel_menu.org_settings.activate_section(section);
+                settings_panel_menu.org_settings.activate_section_or_default(section);
                 return;
             }
 
@@ -199,30 +204,23 @@ function do_hashchange_overlay(old_hash) {
         return;
     }
 
-    if (base === 'settings') {
-        if (!section) {
-            section = settings_panel_menu.normal_settings.current_tab();
-            const settings_hash = '#settings/' + section;
-            exports.replace_hash(settings_hash);
-        }
-
+    if (base === "settings") {
         settings.launch(section);
         return;
     }
 
-    if (base === 'organization') {
-        if (!section) {
-            section = settings_panel_menu.org_settings.current_tab();
-            const org_hash = '#organization/' + section;
-            exports.replace_hash(org_hash);
-        }
-
+    if (base === "organization") {
         admin.launch(section);
         return;
     }
 
     if (base === "invite") {
         invite.launch();
+        return;
+    }
+
+    if (base === "recent_topics") {
+        recent_topics.launch();
         return;
     }
 }
@@ -252,8 +250,8 @@ function hashchanged(from_reload, e) {
 exports.update_browser_history = function (new_hash) {
     const old_hash = window.location.hash;
 
-    if (!new_hash.startsWith('#')) {
-        blueslip.error('programming error: prefix hashes with #: ' + new_hash);
+    if (!new_hash.startsWith("#")) {
+        blueslip.error("programming error: prefix hashes with #: " + new_hash);
         return;
     }
 
@@ -262,7 +260,7 @@ exports.update_browser_history = function (new_hash) {
         // probably harmless, and we just ignore it.  But it could be a symptom
         // of disorganized code that's prone to an infinite loop of repeatedly
         // assigning the same hash.
-        blueslip.info('ignoring probably-harmless call to update_browser_history: ' + new_hash);
+        blueslip.info("ignoring probably-harmless call to update_browser_history: " + new_hash);
         return;
     }
 
@@ -274,7 +272,7 @@ exports.update_browser_history = function (new_hash) {
 exports.replace_hash = function (hash) {
     if (!window.history.replaceState) {
         // We may have strange behavior with the back button.
-        blueslip.warn('browser does not support replaceState');
+        blueslip.warn("browser does not support replaceState");
         return;
     }
 
@@ -289,7 +287,7 @@ exports.go_to_location = function (hash) {
 };
 
 exports.initialize = function () {
-    $(window).on('hashchange', function (e) {
+    $(window).on("hashchange", (e) => {
         hashchanged(false, e.originalEvent);
     });
     hashchanged(true);
@@ -303,7 +301,6 @@ exports.exit_overlay = function (callback) {
         if (typeof callback === "function") {
             callback();
         }
-
     }
 };
 

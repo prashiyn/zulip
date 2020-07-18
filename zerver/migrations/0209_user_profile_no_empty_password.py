@@ -6,7 +6,7 @@ import ujson
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import migrations
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 from django.utils.timezone import now as timezone_now
 
@@ -94,7 +94,7 @@ def ensure_no_empty_passwords(apps: StateApps, schema_editor: DatabaseSchemaEdit
         # We check if the user changed their API key since their first password change.
         query = RealmAuditLog.objects.filter(
             modified_user=user_id, event_type__in=[USER_PASSWORD_CHANGED,
-                                                   USER_API_KEY_CHANGED]
+                                                   USER_API_KEY_CHANGED],
         ).order_by("event_time")
 
         earliest_password_change = query.filter(event_type=USER_PASSWORD_CHANGED).first()
@@ -149,7 +149,7 @@ def ensure_no_empty_passwords(apps: StateApps, schema_editor: DatabaseSchemaEdit
             extra_data=ujson.dumps({
                 'migration_id': MIGRATION_ID,
                 'affected_user_type': affected_user_type,
-            })
+            }),
         )
 
     # If Zulip's built-in password authentication is not enabled on
@@ -225,5 +225,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(ensure_no_empty_passwords,
-                             reverse_code=migrations.RunPython.noop),
+                             reverse_code=migrations.RunPython.noop,
+                             elidable=True),
     ]

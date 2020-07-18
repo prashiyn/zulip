@@ -1,5 +1,5 @@
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 from django.db.models import Max
 from django.utils.timezone import now as timezone_now
@@ -61,5 +61,5 @@ class Migration(migrations.Migration):
             field=models.IntegerField(null=True),
         ),
         migrations.RunPython(backfill_subscription_log_events,
-                             reverse_code=reverse_code),
+                             reverse_code=reverse_code, elidable=True),
     ]

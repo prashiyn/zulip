@@ -1,16 +1,31 @@
+from typing import Any, Dict, List, Optional
+from unittest.mock import Mock, patch
+
 from django.conf import settings
 
-from mock import Mock, patch
-from typing import Any, List, Dict, Optional
-
 from zerver.apps import flush_cache
-from zerver.lib.cache import generic_bulk_cached_fetch, user_profile_by_email_cache_key, cache_with_key, \
-    validate_cache_key, InvalidCacheKeyException, MEMCACHED_MAX_KEY_LENGTH, get_cache_with_key, \
-    NotFoundInCache, cache_set, cache_get, cache_delete, cache_delete_many, cache_get_many, cache_set_many, \
-    safe_cache_get_many, safe_cache_set_many
+from zerver.lib.cache import (
+    MEMCACHED_MAX_KEY_LENGTH,
+    InvalidCacheKeyException,
+    NotFoundInCache,
+    bulk_cached_fetch,
+    cache_delete,
+    cache_delete_many,
+    cache_get,
+    cache_get_many,
+    cache_set,
+    cache_set_many,
+    cache_with_key,
+    get_cache_with_key,
+    safe_cache_get_many,
+    safe_cache_set_many,
+    user_profile_by_email_cache_key,
+    validate_cache_key,
+)
 from zerver.lib.test_classes import ZulipTestCase
 from zerver.lib.test_helpers import queries_captured
-from zerver.models import get_system_bot, get_user_profile_by_email, UserProfile
+from zerver.models import UserProfile, get_system_bot, get_user_profile_by_email
+
 
 class AppsTest(ZulipTestCase):
     def test_cache_gets_flushed(self) -> None:
@@ -62,7 +77,7 @@ class CacheKeyValidationTest(ZulipTestCase):
 class CacheWithKeyDecoratorTest(ZulipTestCase):
     def test_cache_with_key_invalid_character(self) -> None:
         def invalid_characters_cache_key_function(user_id: int) -> str:
-            return 'CacheWithKeyDecoratorTest:invalid_character:ą:{}'.format(user_id)
+            return f'CacheWithKeyDecoratorTest:invalid_character:ą:{user_id}'
 
         @cache_with_key(invalid_characters_cache_key_function, timeout=1000)
         def get_user_function_with_bad_cache_keys(user_id: int) -> UserProfile:
@@ -101,7 +116,7 @@ class CacheWithKeyDecoratorTest(ZulipTestCase):
 
     def test_cache_with_key_good_key(self) -> None:
         def good_cache_key_function(user_id: int) -> str:
-            return 'CacheWithKeyDecoratorTest:good_cache_key:{}'.format(user_id)
+            return f'CacheWithKeyDecoratorTest:good_cache_key:{user_id}'
 
         @cache_with_key(good_cache_key_function, timeout=1000)
         def get_user_function_with_good_cache_keys(user_id: int) -> UserProfile:
@@ -125,7 +140,7 @@ class CacheWithKeyDecoratorTest(ZulipTestCase):
 
     def test_cache_with_key_none_values(self) -> None:
         def cache_key_function(user_id: int) -> str:
-            return 'CacheWithKeyDecoratorTest:test_cache_with_key_none_values:{}'.format(user_id)
+            return f'CacheWithKeyDecoratorTest:test_cache_with_key_none_values:{user_id}'
 
         @cache_with_key(cache_key_function, timeout=1000)
         def get_user_function_can_return_none(user_id: int) -> Optional[UserProfile]:
@@ -155,7 +170,7 @@ class GetCacheWithKeyDecoratorTest(ZulipTestCase):
         # we got the result from calling the function (None)
 
         def good_cache_key_function(user_id: int) -> str:
-            return 'CacheWithKeyDecoratorTest:good_cache_key:{}'.format(user_id)
+            return f'CacheWithKeyDecoratorTest:good_cache_key:{user_id}'
 
         @get_cache_with_key(good_cache_key_function)
         def get_user_function_with_good_cache_keys(user_id: int) -> Any:  # nocoverage
@@ -173,7 +188,7 @@ class GetCacheWithKeyDecoratorTest(ZulipTestCase):
 
     def test_get_cache_with_bad_key(self) -> None:
         def bad_cache_key_function(user_id: int) -> str:
-            return 'CacheWithKeyDecoratorTest:invalid_character:ą:{}'.format(user_id)
+            return f'CacheWithKeyDecoratorTest:invalid_character:ą:{user_id}'
 
         @get_cache_with_key(bad_cache_key_function)
         def get_user_function_with_bad_cache_keys(user_id: int) -> Any:  # nocoverage
@@ -199,16 +214,18 @@ class SafeCacheFunctionsTest(ZulipTestCase):
         with patch('zerver.lib.cache.logger.warning') as mock_warn:
             safe_cache_set_many(items)
             mock_warn.assert_called_once()
-            warning_string = mock_warn.call_args[0][0]
-            self.assertIn("badkey1", warning_string)
-            self.assertIn("badkey2", warning_string)
+            self.assertEqual(
+                mock_warn.call_args[0][1],
+                ['SafeFunctionsTest:\nbadkey1', 'SafeFunctionsTest:\nbadkey2'],
+            )
 
         with patch('zerver.lib.cache.logger.warning') as mock_warn:
             result = safe_cache_get_many(list(items.keys()))
             mock_warn.assert_called_once()
-            warning_string = mock_warn.call_args[0][0]
-            self.assertIn("badkey1", warning_string)
-            self.assertIn("badkey2", warning_string)
+            self.assertEqual(
+                mock_warn.call_args[0][1],
+                ['SafeFunctionsTest:\nbadkey1', 'SafeFunctionsTest:\nbadkey2'],
+            )
 
             self.assertEqual(result, {})
 
@@ -220,16 +237,18 @@ class SafeCacheFunctionsTest(ZulipTestCase):
         with patch('zerver.lib.cache.logger.warning') as mock_warn:
             safe_cache_set_many(items)
             mock_warn.assert_called_once()
-            warning_string = mock_warn.call_args[0][0]
-            self.assertIn("badkey1", warning_string)
-            self.assertIn("badkey2", warning_string)
+            self.assertEqual(
+                mock_warn.call_args[0][1],
+                ['SafeFunctionsTest:\nbadkey1', 'SafeFunctionsTest:\nbadkey2'],
+            )
 
         with patch('zerver.lib.cache.logger.warning') as mock_warn:
             result = safe_cache_get_many(list(items.keys()))
             mock_warn.assert_called_once()
-            warning_string = mock_warn.call_args[0][0]
-            self.assertIn("badkey1", warning_string)
-            self.assertIn("badkey2", warning_string)
+            self.assertEqual(
+                mock_warn.call_args[0][1],
+                ['SafeFunctionsTest:\nbadkey1', 'SafeFunctionsTest:\nbadkey2'],
+            )
 
             self.assertEqual(result, good_items)
 
@@ -253,6 +272,9 @@ class BotCacheKeyTest(ZulipTestCase):
         user_profile2 = get_user_profile_by_email(settings.EMAIL_GATEWAY_BOT)
         self.assertEqual(user_profile2.is_api_super_user, flipped_setting)
 
+def get_user_email(user: UserProfile) -> str:
+    return user.email  # nocoverage
+
 class GenericBulkCachedFetchTest(ZulipTestCase):
     def test_query_function_called_only_if_needed(self) -> None:
         # Get the user cached:
@@ -266,20 +288,22 @@ class GenericBulkCachedFetchTest(ZulipTestCase):
 
         # query_function shouldn't be called, because the only requested object
         # is already cached:
-        result: Dict[str, UserProfile] = generic_bulk_cached_fetch(
+        result: Dict[str, UserProfile] = bulk_cached_fetch(
             cache_key_function=user_profile_by_email_cache_key,
             query_function=query_function,
-            object_ids=[self.example_email("hamlet")]
+            object_ids=[self.example_email("hamlet")],
+            id_fetcher=get_user_email,
         )
         self.assertEqual(result, {hamlet.delivery_email: hamlet})
 
         flush_cache(Mock())
         # With the cache flushed, the query_function should get called:
         with self.assertRaises(CustomException):
-            generic_bulk_cached_fetch(
+            result = bulk_cached_fetch(
                 cache_key_function=user_profile_by_email_cache_key,
                 query_function=query_function,
-                object_ids=[self.example_email("hamlet")]
+                object_ids=[self.example_email("hamlet")],
+                id_fetcher=get_user_email,
             )
 
     def test_empty_object_ids_list(self) -> None:
@@ -294,9 +318,10 @@ class GenericBulkCachedFetchTest(ZulipTestCase):
 
         # query_function and cache_key_function shouldn't be called, because
         # objects_ids is empty, so there's nothing to do.
-        result: Dict[str, UserProfile] = generic_bulk_cached_fetch(
+        result: Dict[str, UserProfile] = bulk_cached_fetch(
             cache_key_function=cache_key_function,
             query_function=query_function,
-            object_ids=[]
+            object_ids=[],
+            id_fetcher=get_user_email,
         )
         self.assertEqual(result, {})

@@ -8,16 +8,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import ujson
+from typing import List
 
-from typing import Optional, List
+import ujson
 
 TOOLS_DIR = os.path.abspath(os.path.dirname(__file__))
 ZULIP_PATH = os.path.dirname(TOOLS_DIR)
 REQS_DIR = os.path.join(ZULIP_PATH, 'requirements')
 CACHE_DIR = os.path.join(ZULIP_PATH, 'var', 'tmp')
-if 'TRAVIS' in os.environ:
-    CACHE_DIR = os.path.join(os.environ['HOME'], 'misc')
 CACHE_FILE = os.path.join(CACHE_DIR, 'requirements_hashes')
 
 def print_diff(path_file1: str, path_file2: str) -> None:
@@ -51,7 +49,7 @@ def test_locked_requirements(tmp_dir: str) -> bool:
 
     return same
 
-def get_requirements_hash(tmp_dir: str, use_test_lock_files: Optional[bool] = False) -> str:
+def get_requirements_hash(tmp_dir: str, use_test_lock_files: bool = False) -> str:
     sha1 = hashlib.sha1()
     reqs_files = sorted(glob.glob(os.path.join(REQS_DIR, "*.in")))
     lock_files_path = REQS_DIR

@@ -18,7 +18,7 @@ Scrapy
 coverage
 
 # fake for LDAP testing
-https://github.com/zulip/fakeldap/archive/ff32deaad34b91d5ba5735f314362c0456c92607.zip#egg=fakeldap==0.6.1zulip
+fakeldap
 
 # For testing mock http requests
 responses
@@ -26,9 +26,8 @@ responses
 # For sorting imports
 isort
 
-# For doing highly usable Python profiling (temporary fork of
-# line_profiler: https://github.com/rkern/line_profiler/issues/127)
-lp37
+# For doing highly usable Python profiling
+line-profiler
 
 # for pep8 linter
 pycodestyle
@@ -55,16 +54,18 @@ python-digitalocean
 pip-tools
 
 # zulip's linting framework - zulint
-https://github.com/zulip/zulint/archive/aaed679f1ad38b230090eadd3870b7682500f60c.zip#egg=zulint==0.0.1
+https://github.com/zulip/zulint/archive/204a02dbc730253061af08f67a26858dc73754cb.zip#egg=zulint==0.0.1
 
 -r mypy.in
 
-# These modules are built in later versions of python and will generate difference in locked files
-# if executed with python version > 3.6 so despite being dependent packages they have to be added separately.
-# built-in python > 3.7 needed by jsonschema
-importlib-metadata
-# built-in python > 3.6 needed by cfn-lint
-importlib-resources
+# These modules are built into later versions of Python and will
+# generate different locked files if executed with Python ≥ 3.7, so
+# despite being dependent packages, they have to be added separately.
+importlib-metadata;python_version<"3.8"  # for jsonpickle, jsonschema
+importlib-resources;python_version<"3.7"  # for cfn-lint
 
 # Needed for using integration logo svg files as bot avatars
 cairosvg
+
+# Needed for tools/check-thirdparty
+python-debian

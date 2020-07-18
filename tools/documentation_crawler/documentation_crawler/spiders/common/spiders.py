@@ -1,15 +1,14 @@
 import json
 import re
-import scrapy
+from typing import Callable, Iterator, List, Optional, Union
 
+import scrapy
 from scrapy.http import Request, Response
 from scrapy.linkextractors import IGNORED_EXTENSIONS
 from scrapy.linkextractors.lxmlhtml import LxmlLinkExtractor
 from scrapy.spidermiddlewares.httperror import HttpError
 from scrapy.utils.url import url_has_any_extension
 from twisted.python.failure import Failure
-
-from typing import Callable, Iterable, List, Optional, Union
 
 EXCLUDED_URLS = [
     # Google calendar returns 404s on HEAD requests unconditionally
@@ -63,7 +62,7 @@ class BaseDocumentationSpider(scrapy.Spider):
         self.log(response)
 
     def _is_external_link(self, url: str) -> bool:
-        if "zulip.readthedocs" in url or "zulipchat.com" in url or "zulip.org" in url:
+        if "zulip.readthedocs" in url or "zulip.com" in url or "zulip.org" in url:
             # We want CI to check any links to Zulip sites.
             return False
         if (len(url) > 4 and url[:4] == "file") or ("localhost" in url):
@@ -106,8 +105,8 @@ class BaseDocumentationSpider(scrapy.Spider):
 
         return callback
 
-    def _make_requests(self, url: str) -> Iterable[Request]:
-        callback: Callable[[Response], Optional[Iterable[Request]]] = self.parse
+    def _make_requests(self, url: str) -> Iterator[Request]:
+        callback: Callable[[Response], Optional[Iterator[Request]]] = self.parse
         dont_filter = False
         method = 'GET'
         if self._is_external_url(url):
@@ -121,11 +120,11 @@ class BaseDocumentationSpider(scrapy.Spider):
         yield Request(url, method=method, callback=callback, dont_filter=dont_filter,
                       errback=self.error_callback)
 
-    def start_requests(self) -> Iterable[Request]:
+    def start_requests(self) -> Iterator[Request]:
         for url in self.start_urls:
             yield from self._make_requests(url)
 
-    def parse(self, response: Response) -> Iterable[Request]:
+    def parse(self, response: Response) -> Iterator[Request]:
         self.log(response)
 
         if getattr(self, 'validate_html', False):
@@ -143,7 +142,7 @@ class BaseDocumentationSpider(scrapy.Spider):
                                       canonicalize=False).extract_links(response):
             yield from self._make_requests(link.url)
 
-    def retry_request_with_get(self, request: Request) -> Iterable[Request]:
+    def retry_request_with_get(self, request: Request) -> Iterator[Request]:
         request.method = 'GET'
         request.dont_filter = True
         yield request
@@ -151,7 +150,7 @@ class BaseDocumentationSpider(scrapy.Spider):
     def exclude_error(self, url: str) -> bool:
         return url in EXCLUDED_URLS
 
-    def error_callback(self, failure: Failure) -> Optional[Union[Failure, Iterable[Request]]]:
+    def error_callback(self, failure: Failure) -> Optional[Union[Failure, Iterator[Request]]]:
         if failure.check(HttpError):
             response = failure.value.response
             if self.exclude_error(response.url):

@@ -25,7 +25,7 @@ class zulip_ops::zmirror {
 
   apt::source {'debathena':
     location    => 'http://debathena.mit.edu/apt',
-    release     => 'xenial',
+    release     => $zulip::base::release_name,
     repos       => 'debathena debathena-config',
     key         => 'D1CD49BDD30B677273A75C66E4EE62700D8A9E8F',
     key_source  => 'https://debathena.mit.edu/apt/debathena-archive.asc',
@@ -59,7 +59,7 @@ class zulip_ops::zmirror {
   }
 
   file { '/usr/lib/nagios/plugins/zulip_zephyr_mirror':
-    require => Package[nagios-plugins-basic],
+    require => Package[$zulip::common::nagios_plugins],
     recurse => true,
     purge   => true,
     owner   => 'root',

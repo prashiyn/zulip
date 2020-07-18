@@ -1,13 +1,17 @@
-import ujson
-from django.http import HttpResponse
 from typing import Any, Dict, List, Mapping
 from unittest import mock
 
+import ujson
+from django.http import HttpResponse
+
+from zerver.lib.cache import cache_get, to_dict_cache_key_id
 from zerver.lib.emoji import emoji_name_to_emoji_code
+from zerver.lib.message import extract_message_dict
 from zerver.lib.request import JsonableError
-from zerver.lib.test_helpers import tornado_redirected_to_list
 from zerver.lib.test_classes import ZulipTestCase
-from zerver.models import get_realm, Message, Reaction, RealmEmoji, UserMessage
+from zerver.lib.test_helpers import tornado_redirected_to_list, zulip_reaction_info
+from zerver.models import Message, Reaction, RealmEmoji, UserMessage, get_realm
+
 
 class ReactionEmojiTest(ZulipTestCase):
     def test_missing_emoji(self) -> None:
@@ -16,7 +20,7 @@ class ReactionEmojiTest(ZulipTestCase):
         """
         sender = self.example_user("hamlet")
         reaction_info = {
-            'emoji_name': ''
+            'emoji_name': '',
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
@@ -29,7 +33,7 @@ class ReactionEmojiTest(ZulipTestCase):
         """
         sender = self.example_user("hamlet")
         reaction_info = {
-            'emoji_name': 'foo'
+            'emoji_name': 'foo',
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
@@ -46,7 +50,7 @@ class ReactionEmojiTest(ZulipTestCase):
         sender = self.example_user("hamlet")
         reaction_info = {
             'emoji_name': 'green_tick',
-            'reaction_type': 'realm_emoji'
+            'reaction_type': 'realm_emoji',
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
@@ -59,13 +63,53 @@ class ReactionEmojiTest(ZulipTestCase):
         """
         sender = self.example_user("hamlet")
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
+        base_query = Reaction.objects.filter(user_profile=sender,
+                                             message=Message.objects.get(id=1),
+                                             )
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
                                reaction_info)
         self.assert_json_success(result)
         self.assertEqual(200, result.status_code)
+        self.assertTrue(base_query.filter(emoji_name=reaction_info['emoji_name']).exists())
+
+        reaction_info['emoji_name'] = 'green_tick'
+        result = self.api_post(sender, '/api/v1/messages/1/reactions',
+                               reaction_info)
+        self.assert_json_success(result)
+        self.assertEqual(200, result.status_code)
+        self.assertTrue(base_query.filter(emoji_name=reaction_info['emoji_name']).exists())
+
+    def test_cached_reaction_data(self) -> None:
+        """
+        Formatted reactions data is saved in cache.
+        """
+        sender = self.example_user("hamlet")
+        reaction_info = {
+            'emoji_name': 'smile',
+        }
+        result = self.api_post(sender, '/api/v1/messages/1/reactions',
+                               reaction_info)
+
+        self.assert_json_success(result)
+        self.assertEqual(200, result.status_code)
+        key = to_dict_cache_key_id(1)
+        message = extract_message_dict(cache_get(key)[0])
+
+        expected_reaction_data = [{
+            'emoji_name': 'smile',
+            'emoji_code': '263a',
+            'reaction_type': 'unicode_emoji',
+            'user': {
+                'email': 'user10@zulip.testserver',
+                'id': 10,
+                'full_name': 'King Hamlet',
+            },
+            'user_id': 10,
+        }]
+        self.assertEqual(expected_reaction_data, message['reactions'])
 
     def test_zulip_emoji(self) -> None:
         """
@@ -74,13 +118,23 @@ class ReactionEmojiTest(ZulipTestCase):
         sender = self.example_user("hamlet")
         reaction_info = {
             'emoji_name': 'zulip',
-            'reaction_type': 'zulip_extra_emoji'
+            'reaction_type': 'zulip_extra_emoji',
         }
+        base_query = Reaction.objects.filter(user_profile=sender,
+                                             emoji_name=reaction_info['emoji_name'])
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
                                reaction_info)
         self.assert_json_success(result)
         self.assertEqual(200, result.status_code)
+        self.assertTrue(base_query.filter(message=Message.objects.get(id=1)).exists())
+
+        reaction_info.pop('reaction_type')
+        result = self.api_post(sender, '/api/v1/messages/2/reactions',
+                               reaction_info)
+        self.assert_json_success(result)
+        self.assertEqual(200, result.status_code)
+        self.assertTrue(base_query.filter(message=Message.objects.get(id=2)).exists())
 
     def test_valid_emoji_react_historical(self) -> None:
         """
@@ -99,10 +153,10 @@ class ReactionEmojiTest(ZulipTestCase):
 
         # Have hamlet react to the message
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
-        result = self.api_post(sender, '/api/v1/messages/%s/reactions' % (message_id,),
+        result = self.api_post(sender, f'/api/v1/messages/{message_id}/reactions',
                                reaction_info)
         self.assert_json_success(result)
 
@@ -120,7 +174,7 @@ class ReactionEmojiTest(ZulipTestCase):
 
         reaction_info = {
             'emoji_name': 'green_tick',
-            'reaction_type': 'realm_emoji'
+            'reaction_type': 'realm_emoji',
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions',
@@ -189,7 +243,7 @@ class ReactionMessageIDTest(ZulipTestCase):
         """
         sender = self.example_user("hamlet")
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
         result = self.api_post(sender, '/api/v1/messages//reactions',
@@ -202,7 +256,7 @@ class ReactionMessageIDTest(ZulipTestCase):
         """
         sender = self.example_user("hamlet")
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
         result = self.api_post(sender, '/api/v1/messages/-1/reactions',
@@ -224,10 +278,10 @@ class ReactionMessageIDTest(ZulipTestCase):
         self.assert_json_success(result)
         pm_id = result.json()['id']
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
-        result = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        result = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                reaction_info)
         self.assert_json_error(result, "Invalid message(s)")
 
@@ -250,14 +304,14 @@ class ReactionTest(ZulipTestCase):
         pm_id = content['id']
 
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
-        first = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        first = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                               reaction_info)
         self.assert_json_success(first)
 
-        second = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        second = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                reaction_info)
         self.assert_json_error(second, "Reaction already exists.")
 
@@ -278,18 +332,18 @@ class ReactionTest(ZulipTestCase):
         content = ujson.loads(pm.content)
         pm_id = content['id']
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
-        add = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        add = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                             reaction_info)
         self.assert_json_success(add)
 
-        first = self.api_delete(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        first = self.api_delete(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                 reaction_info)
         self.assert_json_success(first)
 
-        second = self.api_delete(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        second = self.api_delete(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                  reaction_info)
         self.assert_json_error(second, "Reaction doesn't exist.")
 
@@ -304,7 +358,7 @@ class ReactionTest(ZulipTestCase):
         reaction_info = {
             'emoji_name': 'smile',
             'emoji_code': emoji_code,
-            'reaction_type': reaction_type
+            'reaction_type': reaction_type,
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions', reaction_info)
@@ -325,7 +379,7 @@ class ReactionTest(ZulipTestCase):
         reaction_info = {
             'emoji_name': 'green_tick',
             'emoji_code': str(emoji.id),
-            'reaction_type': 'realm_emoji'
+            'reaction_type': 'realm_emoji',
         }
 
         result = self.api_post(sender, '/api/v1/messages/1/reactions', reaction_info)
@@ -357,12 +411,12 @@ class ReactionEventTest(ZulipTestCase):
         expected_recipient_ids = {pm_sender.id, pm_recipient.id}
 
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
         events: List[Mapping[str, Any]] = []
         with tornado_redirected_to_list(events):
-            result = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+            result = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                    reaction_info)
         self.assert_json_success(result)
         self.assertEqual(len(events), 1)
@@ -397,16 +451,16 @@ class ReactionEventTest(ZulipTestCase):
         expected_recipient_ids = {pm_sender.id, pm_recipient.id}
 
         reaction_info = {
-            'emoji_name': 'smile'
+            'emoji_name': 'smile',
         }
 
-        add = self.api_post(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+        add = self.api_post(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                             reaction_info)
         self.assert_json_success(add)
 
         events: List[Mapping[str, Any]] = []
         with tornado_redirected_to_list(events):
-            result = self.api_delete(reaction_sender, '/api/v1/messages/%s/reactions' % (pm_id,),
+            result = self.api_delete(reaction_sender, f'/api/v1/messages/{pm_id}/reactions',
                                      reaction_info)
         self.assert_json_success(result)
         self.assertEqual(len(events), 1)
@@ -426,44 +480,36 @@ class EmojiReactionBase(ZulipTestCase):
     changing this: It's used in test_retention.py as well."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        self.reaction_type = 'realm_emoji'
         super().__init__(*args, **kwargs)
 
-    def post_reaction(self, reaction_info: Dict[str, str], message_id: int=1,
-                      sender: str='hamlet') -> HttpResponse:
-        if 'reaction_type' not in reaction_info:
-            reaction_info['reaction_type'] = self.reaction_type
-        sender = self.example_user(sender)
-        result = self.api_post(sender, '/api/v1/messages/%s/reactions' % (message_id,),
-                               reaction_info)
+    def post_reaction(self, reaction_info: Dict[str, str]) -> HttpResponse:
+        message_id = 1
+
+        result = self.api_post(
+            self.example_user('hamlet'),
+            f'/api/v1/messages/{message_id}/reactions',
+            reaction_info
+        )
         return result
 
-    def post_zulip_reaction(self, message_id: int=1, sender: str='hamlet') -> HttpResponse:
-        reaction_info = {
-            'emoji_name': 'zulip',
-            'emoji_code': 'zulip',
-            'reaction_type': 'zulip_extra_emoji',
-        }
-        result = self.post_reaction(reaction_info, message_id, sender)
+    def post_other_reaction(self, reaction_info: Dict[str, str]) -> HttpResponse:
+        message_id = 1
 
+        result = self.api_post(
+            self.example_user('AARON'),
+            f'/api/v1/messages/{message_id}/reactions',
+            reaction_info
+        )
         return result
 
-    def delete_reaction(self, reaction_info: Dict[str, str], message_id: int=1,
-                        sender: str='hamlet') -> HttpResponse:
-        if 'reaction_type' not in reaction_info:
-            reaction_info['reaction_type'] = self.reaction_type
-        sender = self.example_user(sender)
-        result = self.api_delete(sender, '/api/v1/messages/%s/reactions' % (message_id,),
-                                 reaction_info)
-        return result
+    def delete_reaction(self, reaction_info: Dict[str, str]) -> HttpResponse:
+        message_id = 1
 
-    def delete_zulip_reaction(self, message_id: int=1, sender: str='hamlet') -> HttpResponse:
-        reaction_info = {
-            'emoji_name': 'zulip',
-            'emoji_code': 'zulip',
-            'reaction_type': 'zulip_extra_emoji',
-        }
-        result = self.delete_reaction(reaction_info, message_id, sender)
+        result = self.api_delete(
+            self.example_user('hamlet'),
+            f'/api/v1/messages/{message_id}/reactions',
+            reaction_info
+        )
         return result
 
     def get_message_reactions(self, message_id: int, emoji_code: str,
@@ -477,8 +523,8 @@ class EmojiReactionBase(ZulipTestCase):
 class DefaultEmojiReactionTests(EmojiReactionBase):
     def setUp(self) -> None:
         super().setUp()
-        self.reaction_type = 'unicode_emoji'
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'hamburger',
             'emoji_code': '1f354',
         }
@@ -487,6 +533,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_add_default_emoji_reaction(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'thumbs_up',
             'emoji_code': '1f44d',
         }
@@ -495,6 +542,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_add_default_emoji_invalid_code(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'hamburger',
             'emoji_code': 'TBD',
         }
@@ -503,6 +551,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_add_default_emoji_invalid_name(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'non-existent',
             'emoji_code': '1f44d',
         }
@@ -519,10 +568,11 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
                                            reaction_type='unicode_emoji',
                                            )
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'smiley',
             'emoji_code': '1f603',
         }
-        result = self.post_reaction(reaction_info, sender='AARON')
+        result = self.post_other_reaction(reaction_info)
         self.assert_json_success(result)
 
         reactions = self.get_message_reactions(1, '1f603', 'unicode_emoji')
@@ -531,6 +581,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_add_duplicate_reaction(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'non-existent',
             'emoji_code': '1f354',
         }
@@ -539,7 +590,8 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_add_reaction_by_name(self) -> None:
         reaction_info = {
-            'emoji_name': '+1'
+            'reaction_type': 'unicode_emoji',
+            'emoji_name': '+1',
         }
         result = self.post_reaction(reaction_info)
         self.assert_json_success(result)
@@ -550,11 +602,12 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
                                     message=message,
                                     emoji_name=reaction_info['emoji_name'],
                                     emoji_code='1f44d',
-                                    reaction_type='unicode_emoji').exists()
+                                    reaction_type='unicode_emoji').exists(),
         )
 
     def test_preserve_non_canonical_name(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': '+1',
             'emoji_code': '1f44d',
         }
@@ -567,6 +620,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_reaction_name_collapse(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': '+1',
             'emoji_code': '1f44d',
         }
@@ -574,7 +628,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
         self.assert_json_success(result)
 
         reaction_info['emoji_name'] = 'thumbs_up'
-        result = self.post_reaction(reaction_info, sender='AARON')
+        result = self.post_other_reaction(reaction_info)
         self.assert_json_success(result)
 
         reactions = self.get_message_reactions(1, '1f44d', 'unicode_emoji')
@@ -583,6 +637,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_delete_default_emoji_reaction(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'hamburger',
             'emoji_code': '1f354',
         }
@@ -597,6 +652,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
     def test_delete_non_existing_emoji_reaction(self) -> None:
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'thumbs_up',
             'emoji_code': '1f44d',
         }
@@ -614,6 +670,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
                                 )
 
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'new_name',
             'emoji_code': '1f44f',
         }
@@ -631,7 +688,8 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
                                 )
 
         reaction_info = {
-            'emoji_name': '+1'
+            'reaction_type': 'unicode_emoji',
+            'emoji_name': '+1',
         }
         result = self.delete_reaction(reaction_info)
         self.assert_json_success(result)
@@ -640,7 +698,7 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
                                     message=message,
                                     emoji_name=reaction_info['emoji_name'],
                                     emoji_code='1f44d',
-                                    reaction_type='unicode_emoji').exists()
+                                    reaction_type='unicode_emoji').exists(),
         )
 
     def test_react_historical(self) -> None:
@@ -659,10 +717,16 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
         # Have hamlet react to the message
         reaction_info = {
+            'reaction_type': 'unicode_emoji',
             'emoji_name': 'hamburger',
             'emoji_code': '1f354',
         }
-        result = self.post_reaction(reaction_info, message_id=message_id)
+
+        result = self.api_post(
+            user_profile,
+            f'/api/v1/messages/{message_id}/reactions',
+            reaction_info
+        )
         self.assert_json_success(result)
 
         # Fetch the now-created UserMessage object to confirm it exists and is historical
@@ -673,14 +737,14 @@ class DefaultEmojiReactionTests(EmojiReactionBase):
 
 class ZulipExtraEmojiReactionTest(EmojiReactionBase):
     def test_add_zulip_emoji_reaction(self) -> None:
-        result = self.post_zulip_reaction()
+        result = self.post_reaction(zulip_reaction_info())
         self.assert_json_success(result)
 
     def test_add_duplicate_zulip_reaction(self) -> None:
-        result = self.post_zulip_reaction()
+        result = self.post_reaction(zulip_reaction_info())
         self.assert_json_success(result)
 
-        result = self.post_zulip_reaction()
+        result = self.post_reaction(zulip_reaction_info())
         self.assert_json_error(result, 'Reaction already exists.')
 
     def test_add_invalid_extra_emoji(self) -> None:
@@ -702,14 +766,14 @@ class ZulipExtraEmojiReactionTest(EmojiReactionBase):
         self.assert_json_error(result, 'Invalid emoji name.')
 
     def test_delete_zulip_emoji(self) -> None:
-        result = self.post_zulip_reaction()
+        result = self.post_reaction(zulip_reaction_info())
         self.assert_json_success(result)
 
-        result = self.delete_zulip_reaction()
+        result = self.delete_reaction(zulip_reaction_info())
         self.assert_json_success(result)
 
     def test_delete_non_existent_zulip_reaction(self) -> None:
-        result = self.delete_zulip_reaction()
+        result = self.delete_reaction(zulip_reaction_info())
         self.assert_json_error(result, "Reaction doesn't exist.")
 
 class RealmEmojiReactionTests(EmojiReactionBase):
@@ -717,6 +781,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
         super().setUp()
         green_tick_emoji = RealmEmoji.objects.get(name="green_tick")
         self.default_reaction_info = {
+            'reaction_type': 'realm_emoji',
             'emoji_name': 'green_tick',
             'emoji_code': str(green_tick_emoji.id),
         }
@@ -727,6 +792,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
 
     def test_add_realm_emoji_invalid_code(self) -> None:
         reaction_info = {
+            'reaction_type': 'realm_emoji',
             'emoji_name': 'green_tick',
             'emoji_code': '9999',
         }
@@ -736,6 +802,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
     def test_add_realm_emoji_invalid_name(self) -> None:
         green_tick_emoji = RealmEmoji.objects.get(name="green_tick")
         reaction_info = {
+            'reaction_type': 'realm_emoji',
             'emoji_name': 'bogus_name',
             'emoji_code': str(green_tick_emoji.id),
         }
@@ -758,7 +825,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
         emoji.deactivated = True
         emoji.save(update_fields=['deactivated'])
 
-        result = self.post_reaction(self.default_reaction_info, sender='AARON')
+        result = self.post_other_reaction(self.default_reaction_info)
         self.assert_json_success(result)
 
         reactions = self.get_message_reactions(1,
@@ -786,6 +853,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
 
     def test_remove_non_existent_realm_emoji_reaction(self) -> None:
         reaction_info = {
+            'reaction_type': 'realm_emoji',
             'emoji_name': 'non_existent',
             'emoji_code': 'TBD',
         }
@@ -800,7 +868,7 @@ class RealmEmojiReactionTests(EmojiReactionBase):
         }
         sender = self.example_user("hamlet")
         message_id = 1
-        result = self.api_post(sender, '/api/v1/messages/%s/reactions' % (message_id,),
+        result = self.api_post(sender, f'/api/v1/messages/{message_id}/reactions',
                                reaction_info)
         self.assert_json_error(result, "Invalid emoji type.")
 
@@ -822,10 +890,12 @@ class ReactionAPIEventTest(EmojiReactionBase):
         }
         events: List[Mapping[str, Any]] = []
         with tornado_redirected_to_list(events):
-            result = self.post_reaction(reaction_info,
-                                        message_id=pm_id,
-                                        sender=reaction_sender.short_name)
-        self.assert_json_success(result)
+            self.api_post(
+                reaction_sender,
+                f'/api/v1/messages/{pm_id}/reactions',
+                reaction_info
+            )
+
         self.assertEqual(len(events), 1)
 
         event = events[0]['event']
@@ -857,14 +927,21 @@ class ReactionAPIEventTest(EmojiReactionBase):
             'emoji_code': '1f354',
             'reaction_type': 'unicode_emoji',
         }
-        add = self.post_reaction(reaction_info, message_id=pm_id, sender=reaction_sender.short_name)
+        add = self.api_post(
+            reaction_sender,
+            f'/api/v1/messages/{pm_id}/reactions',
+            reaction_info,
+        )
         self.assert_json_success(add)
 
         events: List[Mapping[str, Any]] = []
         with tornado_redirected_to_list(events):
-            result = self.delete_reaction(reaction_info,
-                                          message_id=pm_id,
-                                          sender=reaction_sender.short_name)
+            result = self.api_delete(
+                reaction_sender,
+                f'/api/v1/messages/{pm_id}/reactions',
+                reaction_info,
+            )
+
         self.assert_json_success(result)
         self.assertEqual(len(events), 1)
 

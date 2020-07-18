@@ -11,11 +11,9 @@ exports.get_message_events = function (message) {
         return;
     }
 
-    message.submessages.sort(function (m1, m2) {
-        return parseInt(m1.id, 10) - parseInt(m2.id, 10);
-    });
+    message.submessages.sort((m1, m2) => parseInt(m1.id, 10) - parseInt(m2.id, 10));
 
-    const events = message.submessages.map(obj => ({
+    const events = message.submessages.map((obj) => ({
         sender_id: obj.sender_id,
         data: JSON.parse(obj.content),
     }));
@@ -29,7 +27,7 @@ exports.process_submessages = function (in_opts) {
     try {
         return exports.do_process_submessages(in_opts);
     } catch (err) {
-        blueslip.error('in process_submessages: ' + err.message);
+        blueslip.error("in process_submessages: " + err.message);
     }
 };
 
@@ -90,7 +88,7 @@ exports.update_message = function (submsg) {
         message.submessages = [];
     }
 
-    const existing = message.submessages.find(sm => sm.id === submsg.id);
+    const existing = message.submessages.find((sm) => sm.id === submsg.id);
 
     if (existing !== undefined) {
         blueslip.warn("Got submessage multiple times: " + submsg.id);
@@ -109,8 +107,8 @@ exports.handle_event = function (submsg) {
     // Right now, our only use of submessages is widgets.
     const msg_type = submsg.msg_type;
 
-    if (msg_type !== 'widget') {
-        blueslip.warn('unknown msg_type: ' + msg_type);
+    if (msg_type !== "widget") {
+        blueslip.warn("unknown msg_type: " + msg_type);
         return;
     }
 
@@ -119,7 +117,7 @@ exports.handle_event = function (submsg) {
     try {
         data = JSON.parse(submsg.content);
     } catch (err) {
-        blueslip.error('server sent us invalid json in handle_event: ' + submsg.content);
+        blueslip.error("server sent us invalid json in handle_event: " + submsg.content);
         return;
     }
 
@@ -132,7 +130,7 @@ exports.handle_event = function (submsg) {
 
 exports.make_server_callback = function (message_id) {
     return function (opts) {
-        const url = '/json/submessage';
+        const url = "/json/submessage";
 
         channel.post({
             url: url,

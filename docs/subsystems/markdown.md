@@ -1,11 +1,17 @@
 # Markdown implementation
 
-Zulip has a special flavor of Markdown, currently called 'bugdown'
-after Zulip's original name of "humbug". End users are using Bugdown
-within the client, not original Markdown.
+Zulip uses a special flavor of Markdown/CommonMark for its message
+formatting.  Our Markdown flavor is unique primarily to add important
+extensions, such as quote blocks and math blocks, and also to do
+previews and correct issues specific to the chat context.  Beyond
+that, it has a number of minor historical variations resulting from
+its history predacting CommonMark (and thus Zulip choosing different
+solutions to some problems) and based in part on Python-Markdown,
+which is proudly a classic Markdown implementation.  We reduce these
+variations with every major Zulip release.
 
-Zulip has two implementations of Bugdown.  The backend implementation
-at `zerver/lib/bugdown/` is based on
+Zulip has two implementations of Markdown. The backend implementation
+at `zerver/lib/markdown/` is based on
 [Python-Markdown](https://pypi.python.org/pypi/Markdown) and is used to
 authoritatively render messages to HTML (and implements
 slow/expensive/complex features like querying the Twitter API to
@@ -33,7 +39,7 @@ message is sent).  As a result, we try to make sure that
 ## Testing
 
 The Python-Markdown implementation is tested by
-`zerver/tests/test_bugdown.py`, and the marked.js implementation and
+`zerver/tests/test_markdown.py`, and the marked.js implementation and
 `markdown.contains_backend_only_syntax` are tested by
 `frontend_tests/node_tests/markdown.js`.
 
@@ -79,7 +85,7 @@ testcases in `markdown_test_cases.json` that you want to ignore. This
 is a workaround due to lack of comments support in JSON. Revert your
 "ignore" changes before committing. After this, you can run the frontend
 tests with `tools/test-js-with-node markdown` and backend tests with
-`tools/test-backend zerver.tests.test_bugdown.BugdownTest.test_bugdown_fixtures`.
+`tools/test-backend zerver.tests.test_markdown.MarkdownTest.test_markdown_fixtures`.
 
 ## Changing Zulip's markdown processor
 
@@ -94,7 +100,7 @@ First, you will likely find these third-party resources helpful:
 When changing Zulip's markdown syntax, you need to update several
 places:
 
-* The backend markdown processor (`zerver/lib/bugdown/__init__.py`).
+* The backend markdown processor (`zerver/lib/markdown/__init__.py`).
 * The frontend markdown processor (`static/js/markdown.js` and sometimes
   `static/third/marked/lib/marked.js`), or `markdown.contains_backend_only_syntax` if
   your changes won't be supported in the frontend processor.
@@ -131,8 +137,8 @@ Important considerations for any changes are:
 Zulip's markdown processor's rendering supports a number of features
 that depend on realm-specific or user-specific data.  For example, the
 realm could have
-[Linkifiers](https://zulipchat.com/help/add-a-custom-linkification-filter)
-or [Custom emoji](https://zulipchat.com/help/add-custom-emoji)
+[Linkifiers](https://zulip.com/help/add-a-custom-linkification-filter)
+or [Custom emoji](https://zulip.com/help/add-custom-emoji)
 configured, and Zulip supports mentions for streams, users, and user
 groups (which depend on data like users' names, IDs, etc.).
 
@@ -140,7 +146,7 @@ At a backend code level, these are controlled by the `message_realm`
 object and other arguments passed into `do_convert` (`sent_by_bot`,
 `translate_emoticons`, `mention_data`, etc.).  Because
 `python-markdown` doesn't support directly passing arguments into the
-markdown processor, Bugdown attaches these data to the Markdown
+markdown processor, our logic attaches these data to the Markdown
 processor object via e.g. `_md_engine.zulip_db_data`, and then
 individual markdown rules can access the data from there.
 
@@ -195,6 +201,9 @@ complicated ideas in a chat context while minimizing those two error rates.
 Below, we document the changes that Zulip has against stock
 Python-Markdown; some of the features we modify / disable may already
 be non-standard.
+
+**Note** This section has not been updated in a few years and is not
+accurate.
 
 ### Basic syntax
 

@@ -20,7 +20,7 @@ A view in Zulip is everything that helps implement a server endpoint.
 Every path that the Zulip server supports (doesn't show a 404 page
 for) is a view. The obvious ones are those you can visit in your
 browser, for example
-[/integrations](https://zulipchat.com/integrations/), which shows the
+[/integrations](https://zulip.com/integrations/), which shows the
 integration documentation. These paths show up in the address bar of
 the browser. There are other views that are only seen by software,
 namely the API views. They are used to build the various clients that
@@ -50,8 +50,8 @@ to `i18n_urls` in `zproject/urls.py`
 ```diff
      i18n_urls = [
      ...
-+    url(r'^quote-of-the-day/$', TemplateView.as_view(template_name='zerver/qotd.html')),
-+    url(r'^postcards/$', 'zerver.views.postcards'),
++    path('quote-of-the-day', TemplateView.as_view(template_name='zerver/qotd.html')),
++    path('postcards', 'zerver.views.postcards'),
 ]
 ```
 
@@ -68,8 +68,7 @@ views, as an introduction to view decorators.
 ```py
 
 @require_post
-def accounts_register(request):
-    # type: (HttpRequest) -> HttpResponse
+def accounts_register(request: HttpRequest) -> HttpResponse:
 ```
 
 This decorator ensures that the request was a POST--here, we're
@@ -91,8 +90,7 @@ specific to Zulip.
 
 ```py
 @zulip_login_required
-def home(request):
-    # type: (HttpRequest) -> HttpResponse
+def home(request: HttpRequest) -> HttpResponse:
 ```
 
 [login-required-link]: https://docs.djangoproject.com/en/1.8/topics/auth/default/#django.contrib.auth.decorators.login_required
@@ -155,7 +153,7 @@ from zerver.lib.request import has_request_variables, REQ
 @require_realm_admin
 @has_request_variables
 def create_user_backend(request, user_profile, email=REQ(), password=REQ(),
-                        full_name=REQ(), short_name=REQ()):
+                        full_name=REQ()):
     # ... code here
 ```
 
@@ -261,29 +259,15 @@ For example, in [zerver/views/realm.py](https://github.com/zulip/zulip/blob/mast
 ```py
 @require_realm_admin
 @has_request_variables
-def update_realm(request, user_profile, name=REQ(validator=check_string, default=None), ...)):
-    # type: (HttpRequest, UserProfile, ...) -> HttpResponse
+def update_realm(
+    request: HttpRequest, user_profile: UserProfile,
+    name: Optional[str]=REQ(validator=check_string, default=None),
+    # ...
+):
     realm = user_profile.realm
-    data = {} # type: Dict[str, Any]
-    if name is not None and realm.name != name:
-        do_set_realm_name(realm, name)
-        data['name'] = 'updated'
-```
-
-and in [zerver/lib/actions.py](https://github.com/zulip/zulip/blob/master/zerver/lib/actions.py):
-
-```py
-def do_set_realm_name(realm, name):
-    # type: (Realm, str) -> None
-    realm.name = name
-    realm.save(update_fields=['name'])
-    event = dict(
-        type="realm",
-        op="update",
-        property='name',
-        value=name,
-    )
-    send_event(realm, event, active_user_ids(realm))
+    # ...
+            do_set_realm_property(realm, k, v, acting_user=user_profile)
+    # ...
 ```
 
 `realm.save()` actually saves the changes to the realm to the
@@ -340,9 +324,8 @@ preferable from a security perspective, and it is generally a good idea
 to make your feature available to other clients, especially the mobile
 clients.
 
-These endpoints make use of some older authentication decorators,
-`authenticated_json_api_view`, `authenticated_json_post_view`, and
-`authenticated_json_view`, so you may see them in the code.
+These endpoints make use the older authentication decorator
+`authenticated_json_view`, so you may see it in the code.
 
 ## Incoming webhook integrations
 

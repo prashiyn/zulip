@@ -3,20 +3,20 @@ import argparse
 import glob
 import os
 import sys
-
 from typing import Set
 
 ZULIP_PATH = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(ZULIP_PATH)
 from scripts.lib.hash_reqs import expand_reqs, hash_deps
-from scripts.lib.zulip_tools import \
-    get_environment, get_recent_deployments, parse_cache_script_args, \
-    purge_unused_caches
+from scripts.lib.zulip_tools import (
+    get_environment,
+    get_recent_deployments,
+    parse_cache_script_args,
+    purge_unused_caches,
+)
 
 ENV = get_environment()
 VENV_CACHE_DIR = '/srv/zulip-venv-cache'
-if ENV == "travis":
-    VENV_CACHE_DIR = os.path.join(os.environ["HOME"], "zulip-venv-cache")
 
 def get_caches_in_use(threshold_days: int) -> Set[str]:
     setups_to_check = {ZULIP_PATH}

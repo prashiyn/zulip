@@ -1,10 +1,12 @@
 import itertools
-import ujson
-import random
-from typing import List, Dict, Any
 import os
+import random
+from typing import Any, Dict, List
+
+import ujson
 
 from scripts.lib.zulip_tools import get_or_create_dev_uuid_var_path
+
 
 def load_config() -> Dict[str, Any]:
     with open("zerver/tests/fixtures/config.generate_data.json") as infile:
@@ -12,11 +14,28 @@ def load_config() -> Dict[str, Any]:
 
     return config
 
-def get_stream_title(gens: Dict[str, Any]) -> str:
+def generate_topics(num_topics: int) -> List[str]:
+    config = load_config()["gen_fodder"]
 
-    return next(gens["adjectives"]) + " " + next(gens["nouns"]) + " " + \
-        next(gens["connectors"]) + " " + next(gens["verbs"]) + " " + \
-        next(gens["adverbs"])
+    topics = []
+    # Make single word topics account for 30% of total topics.
+    # Single word topics are most common, thus
+    # it is important we test on it.
+    num_single_word_topics = num_topics // 3
+    for _ in itertools.repeat(None, num_single_word_topics):
+        topics.append(random.choice(config["nouns"]))
+
+    sentence = ["adjectives", "nouns", "connectors", "verbs", "adverbs"]
+    for pos in sentence:
+        # Add an empty string so that we can generate variable length topics.
+        config[pos].append("")
+
+    for _ in itertools.repeat(None, num_topics - num_single_word_topics):
+        generated_topic = [random.choice(config[pos]) for pos in sentence]
+        topic = " ".join(filter(None, generated_topic))
+        topics.append(topic)
+
+    return topics
 
 def load_generators(config: Dict[str, Any]) -> Dict[str, Any]:
 

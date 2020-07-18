@@ -19,24 +19,17 @@ class zulip_ops::nagios {
   $nagios_mail_password = zulipsecret('secrets', 'nagios_mail_password', '')
   $nagios_camo_check_url = zulipconf('nagios', 'camo_check_url', undef)
 
-  $hosts_domain = zulipconf('nagios', 'hosts_domain', undef)
+  $default_host_domain = zulipconf('nagios', 'default_host_domain', undef)
   $hosts_zmirror = split(zulipconf('nagios', 'hosts_zmirror', undef), ',')
   $hosts_zmirrorp = split(zulipconf('nagios', 'hosts_zmirrorp', undef), ',')
   $hosts_app_prod = split(zulipconf('nagios', 'hosts_app_prod', undef), ',')
   $hosts_app_staging = split(zulipconf('nagios', 'hosts_app_staging', undef), ',')
   $hosts_postgres_primary = split(zulipconf('nagios', 'hosts_postgres_primary', undef), ',')
-  $hosts_postgres_secondary = split(zulipconf('nagios', 'hosts_postgres_secondary', undef), ',')
+  $hosts_postgres_replica = split(zulipconf('nagios', 'hosts_postgres_replica', undef), ',')
   $hosts_redis = split(zulipconf('nagios', 'hosts_redis', undef), ',')
   $hosts_loadbalancer = split(zulipconf('nagios', 'hosts_loadbalancer', undef), ',')
   $hosts_stats = split(zulipconf('nagios', 'hosts_stats', undef), ',')
   $hosts_fullstack = split(zulipconf('nagios', 'hosts_fullstack', undef), ',')
-
-  apache2site { 'nagios':
-    ensure  => present,
-    require => [File['/etc/apache2/sites-available/'],
-                Apache2mod['headers'], Apache2mod['ssl'],
-                ],
-  }
 
   file { '/etc/nagios3/':
     recurse => true,
@@ -47,6 +40,23 @@ class zulip_ops::nagios {
     mode    => '0644',
     source  => 'puppet:///modules/zulip_ops/nagios3/',
     notify  => Service['nagios3'],
+  }
+
+  file { '/etc/apache2/sites-available/nagios.conf':
+    purge   => false,
+    require => Package[apache2],
+    owner   => 'root',
+    group   => 'root',
+    mode    => '0640',
+    content => template('zulip_ops/nagios_apache_site.conf.template.erb'),
+  }
+  apache2site { 'nagios':
+    ensure  => present,
+    require => [
+      File['/etc/apache2/sites-available/nagios.conf'],
+      Apache2mod['headers'], Apache2mod['ssl'],
+    ],
+    notify  => Service['apache2'],
   }
 
   file { '/etc/nagios3/conf.d/contacts.cfg':
@@ -105,7 +115,7 @@ class zulip_ops::nagios {
     notify => Service['nagios3'],
   }
 
-  $hosts = $zulip_ops::base::hosts
+  $hosts = zulipconf_nagios_hosts()
   file { '/etc/nagios3/conf.d/zulip_autossh.cfg':
     ensure  => file,
     mode    => '0644',
@@ -135,14 +145,5 @@ class zulip_ops::nagios {
     notify  => Service['nagios3'],
   }
 
-  file { '/etc/apache2/sites-available/nagios.conf':
-    recurse => true,
-    purge   => false,
-    require => Package[apache2],
-    owner   => 'root',
-    group   => 'root',
-    mode    => '0640',
-    content => template('zulip_ops/nagios_apache_site.conf.template.erb'),
-  }
   # TODO: Install our API
 }

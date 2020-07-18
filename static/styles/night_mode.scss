@@ -26,6 +26,11 @@ body.night-mode {
 
     .compose-send-status-close {
         color: hsl(0, 0%, 100%);
+        opacity: 1.0;
+    }
+
+    .compose-send-status-close:hover {
+        opacity: .4;
     }
 
     .message_embed .data-container::after {
@@ -55,6 +60,26 @@ body.night-mode {
 
     .streams_popover .sp-container {
         background-color: transparent;
+
+        button {
+            background-color: hsl(208, 35%, 11%);
+            border: 1px solid hsl(210, 36%, 4%);
+            color: hsl(236, 31%, 90%);
+        }
+
+        .sp-picker-container {
+            border-left: solid 1px hsl(210, 36%, 4%);
+        }
+    }
+
+    ul.topics_popover {
+        .admin-separator {
+            &::before,
+            &::after {
+                color: hsl(212, 28%, 18%);
+                opacity: 0.2;
+            }
+        }
     }
 
     /* this one is because in the app we have blue and in night-mode it should be white. */
@@ -97,6 +122,7 @@ on a dark background, and don't change the dark labels dark either. */
         opacity: 0.5;
     }
 
+    .rendered_markdown button,
     .new-style .button {
         background-color: hsla(0, 0%, 0%, 0.2);
 
@@ -225,22 +251,24 @@ on a dark background, and don't change the dark labels dark either. */
     .top-navbar-border {
         border-color: hsla(0, 0%, 0%, 0.6);
     }
-    #tab_bar #tab_list .sub_count::before {
-        background: hsla(0, 0%, 100%, 0.5);
-    }
-    #tab_bar #tab_list .sub_count::after {
-        background: hsla(0, 0%, 100%, 0.5);
+
+    #tab_bar .sub_count {
+        &::before,
+        &::after {
+            color: hsla(0, 0%, 100%, 0.5);
+        }
     }
 
-    #tab_bar #tab_list span:nth-last-child(2):hover + .search_closed {
+    #tab_bar span:nth-last-child(2):hover + .search_closed {
         color: hsl(0, 0%, 100%);
     }
 
-    #searchbox_legacy {
-        #tab_bar #tab_list .sub_count,
-        #tab_bar #tab_list .narrow_description {
-            color: hsla(0, 0%, 90%, 1);
-        }
+    #tab_bar .stream {
+        color: hsl(236, 33%, 90%);
+    }
+    #tab_bar .sub_count,
+    #tab_bar .narrow_description {
+        color: hsla(0, 0%, 90%, 1);
     }
 
     .overlay,
@@ -298,21 +326,24 @@ on a dark background, and don't change the dark labels dark either. */
     .clear_search_button:active,
     .clear_search_button[disabled]:hover,
     #user-groups .save-instructions,
+    #tab_bar .search_icon,
     #searchbox_legacy .search_icon,
     #searchbox_legacy .search_button,
     #searchbox .search_icon,
     #searchbox .search_button,
     .close,
-    #user_presences li:hover .user-list-arrow,
-    li.top_left_all_messages:hover .all-messages-arrow,
-    li.top_left_starred_messages:hover .starred-messages-sidebar-arrow,
-    #stream_filters li:hover .stream-sidebar-arrow,
-    li.topic-list-item:hover .topic-sidebar-arrow {
+    #user_presences li:hover .user-list-sidebar-menu-icon,
+    li.top_left_all_messages:hover .all-messages-sidebar-menu-icon,
+    li.top_left_starred_messages:hover .starred-messages-sidebar-menu-icon,
+    #stream_filters li:hover .stream-sidebar-menu-icon,
+    li.topic-list-item:hover .topic-sidebar-menu-icon {
         color: hsl(236, 33%, 80%);
     }
 
     #message_edit_tooltip:hover,
     .clear_search_button:hover,
+    #tab_bar .search_icon:hover,
+    .search_icon_hover_highlight,
     #searchbox_legacy .search_icon:hover,
     #searchbox_legacy .search_button:hover,
     #searchbox .search_icon:hover,
@@ -321,23 +352,31 @@ on a dark background, and don't change the dark labels dark either. */
         color: hsl(0, 0%, 100%);
     }
 
-    #user_presences li .user-list-arrow:hover,
-    .all-messages-arrow:hover,
-    .starred-messages-sidebar-arrow:hover,
-    .stream-sidebar-arrow:hover,
-    .topic-sidebar-arrow:hover {
+    #user_presences li .user-list-sidebar-menu-icon:hover,
+    .all-messages-sidebar-menu-icon:hover,
+    .starred-messages-sidebar-menu-icon:hover,
+    .stream-sidebar-menu-icon:hover,
+    .topic-sidebar-menu-icon:hover {
         color: hsl(0, 0%, 100%) !important;
     }
 
     #streamlist-toggle,
     #userlist-toggle {
-        border-color: hsla(199, 33%, 46%, 0.2);
+        color: inherit;
+        border-color: hsla(0, 0%, 0%, 0.6);
     }
 
-    #streamlist-toggle-button,
-    #userlist-toggle-button {
+    #streamlist-toggle-button {
         color: inherit;
         background-color: inherit;
+    }
+
+    #userlist-toggle-button {
+        color: hsl(221, 9%, 54%);
+
+        &:hover {
+            color: inherit;
+        }
     }
 
     li.active-filter,
@@ -348,7 +387,6 @@ on a dark background, and don't change the dark labels dark either. */
     .top_left_row:hover,
     .bottom_left_row:hover,
     #stream_filters li.highlighted_stream,
-    #group-pms li:hover,
     #user_presences li:hover,
     #user_presences li.highlighted_user {
         background-color: hsla(136, 25%, 73%, 0.2);
@@ -369,8 +407,54 @@ on a dark background, and don't change the dark labels dark either. */
         background-color: hsla(0, 0%, 0%, 0.2);
     }
 
+    .recent_topic_unread_count {
+        background-color: hsl(0, 0%, 15%) !important;
+        color: hsl(0, 0%, 100%);
+    }
+
+    .recent_avatars_others {
+        color: hsl(0, 0%, 100%) !important;
+        background-color: hsl(211, 18%, 25%) !important;
+    }
+
+    .btn-recent-filters {
+        background-color: hsl(211, 29%, 14%);
+        border-color: hsl(0, 0%, 0%);
+        color: hsl(0, 0%, 100%);
+
+        &:focus {
+            background-color: hsla(0, 0%, 0%, 0.5) !important;
+            outline: 0;
+        }
+    }
+
+    #recent_topics_table tr {
+        background-color: hsl(212, 28%, 18%);
+
+        &:hover {
+            background-color: hsl(208, 26%, 11%, 0.6);
+        }
+    }
+
+    .btn-recent-selected,
+    .recent_topics_table thead th {
+        background-color: hsl(0, 0%, 0%) !important;
+        &:hover {
+            background-color: hsl(211, 29%, 14%) !important;
+        }
+    }
+
+    .recent_topics_table td a {
+        color: hsl(206, 89%, 74%);
+        text-decoration: none;
+        &:hover {
+            color: hsl(208, 64%, 52%);
+        }
+    }
+
     thead,
     .drafts-container .drafts-header,
+    .recent_topics_container .recent_topics_header,
     .nav > li > a:hover,
     .subscriptions-container .subscriptions-header,
     .grey-box,
@@ -386,6 +470,11 @@ on a dark background, and don't change the dark labels dark either. */
     .modal-bg .modal-header {
         border-color: hsla(0, 0%, 0%, 0.2);
         background-color: hsla(0, 0%, 0%, 0.2);
+    }
+
+    .table-hover tbody tr:hover td,
+    .table-hover tbody tr:hover th {
+        background-color: hsla(0, 0%, 0%, 0.5);
     }
 
     .table-striped tbody tr:nth-child(odd) td {
@@ -448,16 +537,200 @@ on a dark background, and don't change the dark labels dark either. */
             box-shadow: 0px 0px 0px 1px hsla(330, 40%, 20%, 1);
         }
 
-        .highlight_text_inserted {
-            color: hsl(122, 100%, 81%);
-            background-color: hsla(120, 64%, 95%, 0.3);
+        .codehilite code,
+        .codehilite pre {
+            color: hsl(212, 100%, 82%);
+            background-color: hsl(212, 25%, 15%);
         }
 
-        .highlight_text_deleted {
-            text-decoration: line-through;
-            background-color: hsla(7, 54%, 62%, 0.38);
-            color: hsl(0, 90%, 67%);
+        .codehilite .hll {
+            background-color: hsl(0, 0%, 13%);
         }
+
+        .codehilite .err {
+            color: hsl(1, 67%, 66%);
+            background-color: hsl(0, 7%, 22%);
+        }
+
+        .codehilite .k {
+            color: hsl(31, 85%, 59%);
+        }
+
+        .codehilite .p {
+            color: hsl(179, 27%, 35%);
+        }
+
+        .codehilite .cs {
+            color: hsl(0, 100%, 40%);
+            font-weight: 700;
+        }
+
+        .codehilite .gd {
+            color: hsl(0, 100%, 40%);
+        }
+
+        .codehilite .ge {
+            color: hsl(0, 0%, 80%);
+            font-style: italic;
+        }
+
+        .codehilite .gr {
+            color: hsl(0, 100%, 50%);
+        }
+
+        .codehilite .go {
+            color: hsl(0, 0%, 50%);
+        }
+
+        .codehilite .gs {
+            color: hsl(0, 0%, 80%);
+            font-weight: 700;
+        }
+
+        .codehilite .gu {
+            color: hsl(300, 100%, 25%);
+            font-weight: 700;
+        }
+
+        .codehilite .gt {
+            color: hsl(222, 100%, 41%);
+        }
+
+        .codehilite .kc {
+            color: hsl(0, 45%, 75%);
+        }
+
+        .codehilite .kd {
+            color: hsl(60, 100%, 76%);
+        }
+
+        .codehilite .kn {
+            color: hsl(24, 56%, 72%);
+            font-weight: 700;
+        }
+
+        .codehilite .kp {
+            color: hsl(62, 36%, 71%);
+        }
+
+        .codehilite .kr {
+            color: hsl(359, 58%, 56%);
+        }
+
+        .codehilite .ni {
+            color: hsl(359, 35%, 63%);
+        }
+
+        .codehilite .ne {
+            color: hsl(53, 23%, 69%);
+            font-weight: 700;
+        }
+
+        .codehilite .nn {
+            color: hsl(204, 54%, 72%);
+        }
+
+        .codehilite .vi {
+            color: hsl(60, 100%, 89%);
+        }
+
+        .codehilite .c,
+        .codehilite .g,
+        .codehilite .cm,
+        .codehilite .cp,
+        .codehilite .c1 {
+            color: hsl(209, 15%, 55%);
+        }
+
+        .codehilite .l,
+        .codehilite .x,
+        .codehilite .no,
+        .codehilite .nd,
+        .codehilite .nl,
+        .codehilite .nx,
+        .codehilite .py,
+        .codehilite .w {
+            color: hsl(0, 0%, 80%);
+        }
+
+        .codehilite .n,
+        .codehilite .nv,
+        .codehilite .vg {
+            color: hsl(60, 19%, 83%);
+        }
+
+        .codehilite .o,
+        .codehilite .ow {
+            color: hsl(58, 52%, 88%);
+        }
+
+        .codehilite .gh,
+        .codehilite .gp {
+            color: hsl(60, 19%, 83%);
+            font-weight: 700;
+        }
+
+        .codehilite .gi,
+        .codehilite .kt {
+            color: hsl(120, 100%, 40%);
+        }
+
+        .codehilite .ld,
+        .codehilite .s,
+        .codehilite .sb,
+        .codehilite .sc,
+        .codehilite .sd,
+        .codehilite .s2,
+        .codehilite .se,
+        .codehilite .sh,
+        .codehilite .si,
+        .codehilite .sx,
+        .codehilite .sr,
+        .codehilite .s1,
+        .codehilite .ss {
+            color: hsl(0, 36%, 69%);
+        }
+
+        .codehilite .m,
+        .codehilite .mf,
+        .codehilite .mh,
+        .codehilite .mi,
+        .codehilite .mo,
+        .codehilite .il {
+            color: hsl(183, 45%, 69%);
+        }
+
+        .codehilite .na,
+        .codehilite .nt {
+            color: hsl(127, 25%, 68%);
+        }
+
+        .codehilite .nb,
+        .codehilite .nc,
+        .codehilite .nf,
+        .codehilite .bp,
+        .codehilite .vc {
+            color: hsl(60, 75%, 75%);
+        }
+    }
+
+    #message-edit-history {
+        .message_edit_history_content {
+            .highlight_text_inserted {
+                color: hsl(122, 100%, 81%);
+                background-color: hsla(120, 64%, 95%, 0.3);
+            }
+
+            .highlight_text_deleted {
+                color: hsl(0, 90%, 67%);
+                background-color: hsla(7, 54%, 62%, 0.38);
+            }
+        }
+    }
+
+    time {
+        background: hsla(0, 0%, 0%, 0.2);
+        box-shadow: 0px 0px 0px 1px hsla(0, 0%, 0%, 0.4);
     }
 
     .tip {
@@ -544,6 +817,24 @@ on a dark background, and don't change the dark labels dark either. */
         box-shadow: 0 5px 10px hsla(0, 0%, 0%, 0.4);
     }
 
+    #user-profile-modal {
+        #default-section {
+            .default-field {
+                .name {
+                    color: hsl(236, 33%, 90%);
+                }
+            }
+        }
+
+        #content {
+            .field-section {
+                .name {
+                    color: hsl(236, 33%, 90%);
+                }
+            }
+        }
+    }
+
     /* Arrows: */
     .hotspot.overlay {
         .hotspot-popover.arrow-right::before {
@@ -586,7 +877,8 @@ on a dark background, and don't change the dark labels dark either. */
         background-color: hsl(212, 28%, 18%);
     }
 
-    .top-messages-logo {
+    .top-messages-logo,
+    .bottom-messages-logo {
         svg path {
             fill: hsl(214, 27%, 18%);
             stroke: hsl(214, 27%, 18%);
@@ -660,7 +952,7 @@ on a dark background, and don't change the dark labels dark either. */
         color: hsl(200, 79%, 66%);
     }
 
-    #loading_more_messages_indicator path {
+    #loading_older_messages_indicator path {
         fill: hsl(0, 0%, 100%);
     }
 
@@ -684,10 +976,20 @@ on a dark background, and don't change the dark labels dark either. */
             }
         }
     }
+
+    a:not(:active):focus {
+        outline-color: hsl(0, 0%, 100%);
+    }
 }
 
-@-moz-document url-prefix() {
+@supports (-moz-appearance: none) {
     body.night-mode #settings_page select {
         background-color: hsla(0, 0%, 0%, 0.2);
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    body.color-scheme-automatic {
+        @extend body.night-mode;
     }
 }

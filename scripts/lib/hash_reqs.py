@@ -1,29 +1,21 @@
 #!/usr/bin/env python3
-import os
-import sys
 import argparse
 import hashlib
-from typing import Iterable, List, MutableSet
+import os
+import subprocess
+import sys
+from typing import Iterable, List
 
-def expand_reqs_helper(fpath: str, visited: MutableSet[str]) -> List[str]:
-    if fpath in visited:
-        return []
-    else:
-        visited.add(fpath)
 
-    curr_dir = os.path.dirname(fpath)
+def expand_reqs_helper(fpath: str) -> List[str]:
     result = []  # type: List[str]
 
     for line in open(fpath):
-        if line.startswith('#'):
+        if line.strip().startswith(('#', '--hash')):
             continue
-        dep = line.split(" #", 1)[0].strip()  # remove comments and strip whitespace
+        dep = line.split(" \\", 1)[0].strip()
         if dep:
-            if dep.startswith('-r'):
-                child = os.path.join(curr_dir, dep[3:])
-                result += expand_reqs_helper(child, visited)
-            else:
-                result.append(dep)
+            result.append(dep)
     return result
 
 def expand_reqs(fpath: str) -> List[str]:
@@ -33,11 +25,17 @@ def expand_reqs(fpath: str) -> List[str]:
     `fpath` can be either an absolute path or a relative path.
     """
     absfpath = os.path.abspath(fpath)
-    output = expand_reqs_helper(absfpath, set())
+    output = expand_reqs_helper(absfpath)
     return sorted(set(output))
 
+def python_version() -> str:
+    """
+    Returns the Python version as string 'Python major.minor.patchlevel'
+    """
+    return subprocess.check_output(["/usr/bin/python3", "-VV"], universal_newlines=True)
+
 def hash_deps(deps: Iterable[str]) -> str:
-    deps_str = "\n".join(deps) + "\n"
+    deps_str = "\n".join(deps) + "\n" + python_version()
     return hashlib.sha1(deps_str.encode('utf-8')).hexdigest()
 
 def main() -> int:

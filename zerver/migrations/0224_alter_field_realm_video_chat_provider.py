@@ -3,7 +3,7 @@
 from typing import Any, Dict, Optional
 
 from django.db import migrations, models
-from django.db.backends.postgresql_psycopg2.schema import DatabaseSchemaEditor
+from django.db.backends.postgresql.schema import DatabaseSchemaEditor
 from django.db.migrations.state import StateApps
 
 # We include a copy of this structure as it was at the time this
@@ -11,19 +11,19 @@ from django.db.migrations.state import StateApps
 VIDEO_CHAT_PROVIDERS = {
     'jitsi_meet': {
         'name': "Jitsi",
-        'id': 1
+        'id': 1,
     },
     'google_hangouts': {
         'name': "Google Hangouts",
-        'id': 2
+        'id': 2,
     },
     'zoom': {
         'name': "Zoom",
-        'id': 3
-    }
+        'id': 3,
+    },
 }
 def get_video_chat_provider_detail(providers_dict: Dict[str, Dict[str, Any]],
-                                   p_name: Optional[str]=None, p_id: Optional[int]=None
+                                   p_name: Optional[str]=None, p_id: Optional[int]=None,
                                    ) -> Dict[str, Any]:
     for provider in providers_dict.values():
         if (p_name and provider['name'] == p_name):
@@ -69,7 +69,8 @@ class Migration(migrations.Migration):
             field=models.PositiveSmallIntegerField(default=VIDEO_CHAT_PROVIDERS['jitsi_meet']['id']),
         ),
         migrations.RunPython(update_existing_video_chat_provider_values,
-                             reverse_code=reverse_code),
+                             reverse_code=reverse_code,
+                             elidable=True),
         migrations.RemoveField(
             model_name='realm',
             name='video_chat_provider_old',

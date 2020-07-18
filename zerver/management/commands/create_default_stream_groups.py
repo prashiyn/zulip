@@ -21,7 +21,7 @@ Create default stream groups which the users can choose during sign up.
             dest='name',
             type=str,
             required=True,
-            help='Name of the group you want to create.'
+            help='Name of the group you want to create.',
         )
 
         parser.add_argument(
@@ -29,7 +29,7 @@ Create default stream groups which the users can choose during sign up.
             dest='description',
             type=str,
             required=True,
-            help='Description of the group.'
+            help='Description of the group.',
         )
 
         parser.add_argument(
@@ -46,7 +46,7 @@ Create default stream groups which the users can choose during sign up.
         streams = []
         stream_names = {stream.strip() for stream in options["streams"].split(",")}
         for stream_name in set(stream_names):
-            stream = ensure_stream(realm, stream_name)
+            stream = ensure_stream(realm, stream_name, acting_user=None)
             streams.append(stream)
 
         try:
