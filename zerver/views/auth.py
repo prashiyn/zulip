@@ -229,6 +229,7 @@ def register_remote_user(request: HttpRequest, email: str,
 def login_or_register_remote_user(request: HttpRequest, email: str,
                                   user_profile: Optional[UserProfile], full_name: str='',
                                   mobile_flow_otp: Optional[str]=None,
+                                  api_flow_otp: Optional[str]=None,                                  
                                   desktop_flow_otp: Optional[str]=None,
                                   is_signup: bool=False, redirect_to: str='',
                                   multiuse_object_key: str='',
@@ -251,9 +252,14 @@ def login_or_register_remote_user(request: HttpRequest, email: str,
     * A zulip:// URL to send control back to the mobile or desktop apps if they
       are doing authentication using the mobile_flow_otp or desktop_flow_otp flow.
     """
+    print(user_profile)
+    print('api flow otp')
+    print(api_flow_otp)
     if user_profile is None or user_profile.is_mirror_dummy:
+        print('registering remote user')
         return register_remote_user(request, email, full_name,
                                     is_signup=is_signup,
+                                    api_flow_otp=api_flow_otp,
                                     mobile_flow_otp=mobile_flow_otp,
                                     desktop_flow_otp=desktop_flow_otp,
                                     multiuse_object_key=multiuse_object_key,
@@ -266,11 +272,36 @@ def login_or_register_remote_user(request: HttpRequest, email: str,
         return finish_mobile_flow(request, user_profile, mobile_flow_otp)
     elif desktop_flow_otp is not None:
         return finish_desktop_flow(request, user_profile, desktop_flow_otp)
-
+    elif api_flow_otp is not None:
+      return finish_api_flow(request, user_profile, api_flow_otp)
     do_login(request, user_profile)
 
     redirect_to = get_safe_redirect_to(redirect_to, user_profile.realm.uri)
     return HttpResponseRedirect(redirect_to)
+
+def finish_api_flow(request: HttpRequest, user_profile: UserProfile, otp: str) -> HttpResponse:
+    print('in finish api flow')
+    # For the api Oauth flow, we send the API key and other
+    # necessary details in a redirect to a pre defined URL scheme.
+    api_key = get_api_key(user_profile)
+    response = create_response_for_api_flow(api_key, otp, user_profile,
+                                            encrypted_key_field_name='otp_encrypted_api_key')
+
+    # Since we are returning an API key instead of going through
+    # the Django login() function (which creates a browser
+    # session, etc.), the "new login" signal handler (which
+    # triggers an email notification new logins) will not run
+    # automatically.  So we call it manually here.
+    #
+    # FIXME: Arguably, sending a fake 'user_logged_in' signal would be a better approach:
+    #   user_logged_in.send(sender=user_profile.__class__, request=request, user=user_profile)
+    email_on_new_login(sender=user_profile.__class__, request=request, user=user_profile)
+
+    # Mark this request as having a logged-in user for our server logs.
+    process_client(request, user_profile)
+    request._requestor_for_logs = user_profile.format_requestor_for_logs()
+
+    return response
 
 def finish_desktop_flow(request: HttpRequest, user_profile: UserProfile,
                         otp: str) -> HttpResponse:
@@ -316,6 +347,19 @@ def finish_mobile_flow(request: HttpRequest, user_profile: UserProfile, otp: str
 
     return response
 
+def create_response_for_api_flow(key: str, otp: str, user_profile: UserProfile,
+                                 encrypted_key_field_name: str) -> HttpResponse:
+    params = {
+        encrypted_key_field_name: otp_encrypt_api_key(key, otp),
+        'email': user_profile.delivery_email,
+        'realm': user_profile.realm.uri,
+    }
+#    return HttpResponseRedirect('/auth/loginsuccess', urllib.parse.urlencode(params))
+    # We can't use HttpResponseRedirect, since it only allows HTTP(S) URLs
+    # response = HttpResponse(status=302)
+    # response['Location'] = add_query_to_redirect_url('/auth/loginsuccess', urllib.parse.urlencode(params))
+    # return response
+    return json_success(params)
 def create_response_for_otp_flow(key: str, otp: str, user_profile: UserProfile,
                                  encrypted_key_field_name: str) -> HttpResponse:
     params = {
@@ -326,7 +370,6 @@ def create_response_for_otp_flow(key: str, otp: str, user_profile: UserProfile,
     # We can't use HttpResponseRedirect, since it only allows HTTP(S) URLs
     response = HttpResponse(status=302)
     response['Location'] = add_query_to_redirect_url('zulip://login', urllib.parse.urlencode(params))
-
     return response
 
 @log_view_func
@@ -508,6 +551,7 @@ LOGIN_KEY_EXPIRATION_SECONDS = 15
 LOGIN_TOKEN_LENGTH = UserProfile.API_KEY_LENGTH
 
 @log_view_func
+@csrf_exempt
 def log_into_subdomain(request: HttpRequest, token: str) -> HttpResponse:
     """Given a valid authentication token (generated by
     redirect_and_log_into_subdomain called on auth.zulip.example.com),
@@ -541,6 +585,7 @@ def log_into_subdomain(request: HttpRequest, token: str) -> HttpResponse:
     is_signup = data.get('is_signup', False)
     redirect_to = data.get('next', '')
     mobile_flow_otp = data.get('mobile_flow_otp')
+    api_flow_otp = data.get('api_flow_otp')
     desktop_flow_otp = data.get('desktop_flow_otp')
     full_name_validated = data.get('full_name_validated', False)
     multiuse_object_key = data.get('multiuse_object_key', '')
@@ -578,9 +623,11 @@ def log_into_subdomain(request: HttpRequest, token: str) -> HttpResponse:
                                          full_name,
                                          is_signup=is_signup, redirect_to=redirect_to,
                                          mobile_flow_otp=mobile_flow_otp,
+                                         api_flow_otp=api_flow_otp,
                                          desktop_flow_otp=desktop_flow_otp,
                                          multiuse_object_key=multiuse_object_key,
                                          full_name_validated=full_name_validated)
+
 
 def store_login_data(data: Dict[str, Any]) -> str:
     key = put_dict_in_redis(redis_client, LOGIN_KEY_FORMAT, data,
@@ -612,6 +659,23 @@ def redirect_and_log_into_subdomain(realm: Realm, full_name: str, email_address:
     subdomain_login_uri = (realm.uri
                            + reverse('zerver.views.auth.log_into_subdomain', args=[token]))
     return redirect(subdomain_login_uri)
+# API Version of above function 'redirect_and_log_into_subdomain'
+def generate_subdomain_token(realm: Realm, full_name: str, email_address: str,
+                                    is_signup: bool=False, redirect_to: str='',
+                                    api_flow_otp: Optional[str]=None,
+                                    mobile_flow_otp: Optional[str]=None,
+                                    desktop_flow_otp: Optional[str]=None,
+                                    multiuse_object_key: str='',
+                                    full_name_validated: bool=False,) -> HttpResponse:
+    data = {'name': full_name, 'email': email_address, 'subdomain': realm.subdomain,
+            'is_signup': is_signup, 'next': redirect_to,
+            'mobile_flow_otp': mobile_flow_otp,
+            'api_flow_otp': api_flow_otp,
+            'desktop_flow_otp': desktop_flow_otp,
+            'multiuse_object_key': multiuse_object_key,
+            'full_name_validated': full_name_validated}
+    token = store_login_data(data)
+    return token
 
 def get_dev_users(realm: Optional[Realm]=None, extra_users_count: int=10) -> List[UserProfile]:
     # Development environments usually have only a few users, but
