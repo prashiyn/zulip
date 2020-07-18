@@ -23,6 +23,8 @@ def get_subdomain(request: HttpRequest) -> str:
     return get_subdomain_from_hostname(host)
 
 def get_subdomain_from_hostname(host: str) -> str:
+    print('host is')
+    print(host)
     m = re.search(r'\.%s(:\d+)?$' % (settings.EXTERNAL_HOST,),
                   host)
     if m:
